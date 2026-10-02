@@ -1,0 +1,85 @@
+<main class="bg-background fixed inset-0 overflow-hidden">
+  <h1 class="sr-only">Slime Sim</h1>
+  <canvas
+    #canvas
+    class="block size-full"
+    aria-label="Slime mould simulation: trails left by agents that follow each other's trails"
+  ></canvas>
+
+  @switch (status()) {
+    @case ('loading') {
+      <p class="text-muted-foreground absolute inset-0 grid place-items-center text-sm">
+        Starting the simulation…
+      </p>
+    }
+    @case ('unsupported') {
+      <div class="absolute inset-0 grid place-items-center p-4">
+        <div class="bg-card text-card-foreground max-w-prose rounded-lg border p-6" role="alert">
+          <h2 class="flex items-center gap-2 text-xl font-semibold">
+            <ng-icon name="lucideTriangleAlert" />
+            WebGPU isn't available
+          </h2>
+          <p class="mt-2">
+            Slime Sim runs on the GPU through WebGPU. Use a current version of Chrome, Edge, Firefox
+            or Safari, and check that hardware acceleration is turned on.
+          </p>
+          <p class="text-muted-foreground mt-2 text-sm">{{ errorMessage() }}</p>
+        </div>
+      </div>
+    }
+    @case ('error') {
+      <div class="absolute inset-0 grid place-items-center p-4">
+        <div class="bg-card text-card-foreground max-w-prose rounded-lg border p-6" role="alert">
+          <h2 class="flex items-center gap-2 text-xl font-semibold">
+            <ng-icon name="lucideTriangleAlert" />
+            The simulation stopped
+          </h2>
+          <p class="mt-2">Reload the page to start it again.</p>
+          <p class="text-muted-foreground mt-2 text-sm">{{ errorMessage() }}</p>
+        </div>
+      </div>
+    }
+    @case ('ready') {
+      @if (panelOpen()) {
+        <aside
+          class="bg-card/90 text-card-foreground absolute inset-y-0 right-0 flex w-80 max-w-full flex-col border-l backdrop-blur"
+          aria-label="Controls"
+        >
+          <header class="flex items-center justify-between border-b px-4 py-2">
+            <span class="text-lg font-semibold">Slime Sim</span>
+            <button
+              hlmBtn
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Hide controls"
+              (click)="panelOpen.set(false)"
+            >
+              <ng-icon name="lucideX" />
+            </button>
+          </header>
+          <slime-control-panel
+            class="min-h-0 flex-1 overflow-y-auto p-4"
+            [(settings)]="settings"
+            [(running)]="running"
+            [summary]="summary()"
+            (step)="step()"
+            (restart)="restart()"
+          />
+        </aside>
+      } @else {
+        <button
+          hlmBtn
+          type="button"
+          variant="outline"
+          size="icon"
+          class="absolute top-2 right-4"
+          aria-label="Show controls"
+          (click)="panelOpen.set(true)"
+        >
+          <ng-icon name="lucideSlidersHorizontal" />
+        </button>
+      }
+    }
+  }
+</main>

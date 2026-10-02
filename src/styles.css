@@ -1,0 +1,162 @@
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/utilities.css';
+
+@import '@spartan-ng/brain/hlm-tailwind-preset.css';
+
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/fira-code';
+
+/*
+ * Design tokens from cortex/05-core (Colors.md, Typography.md).
+ * Dark is the default: index.html ships with <html class="dark">.
+ * Components use these tokens, never raw hex values.
+ */
+
+:root {
+  color-scheme: light;
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Fira Code Variable', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --radius: 0.625rem;
+
+  --background: #fff9f5;
+  --foreground: #120d0b;
+  --card: #ffffff;
+  --card-foreground: #120d0b;
+  --popover: #ffffff;
+  --popover-foreground: #120d0b;
+  --primary: #d08456;
+  --primary-foreground: #3c1d0d;
+  --secondary: #357084;
+  --secondary-foreground: #ffffff;
+  --muted: #faf2ee;
+  --muted-foreground: #5d5653;
+  --accent: #fef5ee;
+  --accent-foreground: #7a4122;
+  --destructive: #bd1b2d;
+  --destructive-foreground: #ffffff;
+  --border: #ece5e0;
+  --input: #7b7471;
+  --ring: #b56b3e;
+  --link: #96542d;
+  --info: #016da8;
+  --info-foreground: #ffffff;
+  --success: #0c7c39;
+  --success-foreground: #ffffff;
+  --warning: #dca627;
+  --warning-foreground: #362200;
+  --error: #bd1b2d;
+  --error-foreground: #ffffff;
+  --info-subtle: #f1f8ff;
+  --info-subtle-foreground: #015886;
+  --info-subtle-border: #c1e0fe;
+  --success-subtle: #eefbf2;
+  --success-subtle-foreground: #08642a;
+  --success-subtle-border: #baeac9;
+  --warning-subtle: #fdf6e8;
+  --warning-subtle-foreground: #6d4b01;
+  --warning-subtle-border: #f3d9a4;
+  --error-subtle: #fff4f2;
+  --error-subtle-foreground: #9a1024;
+  --error-subtle-border: #ffcfc9;
+  --chart-1: #b56b3e;
+  --chart-2: #357084;
+  --chart-3: #a67700;
+  --chart-4: #529067;
+  --chart-5: #a764a3;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: #120d0b;
+  --foreground: #fff9f5;
+  --card: #201a18;
+  --card-foreground: #fff9f5;
+  --popover: #201a18;
+  --popover-foreground: #fff9f5;
+  --primary: #d08456;
+  --primary-foreground: #3c1d0d;
+  --secondary: #82b9d0;
+  --secondary-foreground: #0e2b33;
+  --muted: #2f2926;
+  --muted-foreground: #aaa39f;
+  --accent: #2f2926;
+  --accent-foreground: #fff9f5;
+  --destructive: #ff5856;
+  --destructive-foreground: #4e020f;
+  --border: #2f2926;
+  --input: #7b7471;
+  --ring: #e29e74;
+  --link: #e29e74;
+  --info: #60b7ff;
+  --info-foreground: #002a41;
+  --success: #66c887;
+  --success-foreground: #04300e;
+  --warning: #dca627;
+  --warning-foreground: #362200;
+  --error: #ff5856;
+  --error-foreground: #4e020f;
+  --info-subtle: #002a41;
+  --info-subtle-foreground: #c1e0fe;
+  --info-subtle-border: #015886;
+  --success-subtle: #04300e;
+  --success-subtle-foreground: #baeac9;
+  --success-subtle-border: #08642a;
+  --warning-subtle: #362200;
+  --warning-subtle-foreground: #f3d9a4;
+  --warning-subtle-border: #6d4b01;
+  --error-subtle: #4e020f;
+  --error-subtle-foreground: #ffcfc9;
+  --error-subtle-border: #9a1024;
+  --chart-1: #d08456;
+  --chart-2: #82b9d0;
+  --chart-3: #dca627;
+  --chart-4: #86bf9a;
+  --chart-5: #d697cf;
+}
+
+/* Tokens the Spartan preset doesn't register as Tailwind colors. */
+@theme inline {
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-link: var(--link);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-subtle-foreground: var(--info-subtle-foreground);
+  --color-info-subtle-border: var(--info-subtle-border);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-subtle-foreground: var(--success-subtle-foreground);
+  --color-success-subtle-border: var(--success-subtle-border);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-subtle-foreground: var(--warning-subtle-foreground);
+  --color-warning-subtle-border: var(--warning-subtle-border);
+  --color-error-subtle: var(--error-subtle);
+  --color-error-subtle-foreground: var(--error-subtle-foreground);
+  --color-error-subtle-border: var(--error-subtle-border);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    @apply font-mono;
+  }
+}

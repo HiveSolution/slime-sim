@@ -1,0 +1,196 @@
+<div class="flex flex-col gap-6">
+  <section aria-labelledby="run-heading" class="flex flex-col gap-4">
+    <h2 id="run-heading" class="text-lg font-semibold">Run</h2>
+    <div class="flex gap-2">
+      <button hlmBtn type="button" class="flex-1" (click)="running.set(!running())">
+        <ng-icon [name]="running() ? 'lucidePause' : 'lucidePlay'" />
+        {{ running() ? 'Pause' : 'Play' }}
+      </button>
+      <button hlmBtn type="button" variant="outline" [disabled]="running()" (click)="step.emit()">
+        <ng-icon name="lucideStepForward" />
+        Step
+      </button>
+      <button hlmBtn type="button" variant="outline" (click)="restart.emit()">
+        <ng-icon name="lucideRotateCcw" />
+        Restart
+      </button>
+    </div>
+    <slime-setting-slider
+      label="Steps per frame"
+      [value]="settings().stepsPerFrame"
+      [min]="1"
+      [max]="20"
+      (valueChange)="set('stepsPerFrame', $event)"
+    />
+  </section>
+
+  <section aria-labelledby="presets-heading" class="flex flex-col gap-4">
+    <h2 id="presets-heading" class="text-lg font-semibold">Presets</h2>
+    <div class="grid grid-cols-2 gap-2">
+      @for (preset of presets; track preset.id) {
+        <button
+          hlmBtn
+          type="button"
+          size="sm"
+          [variant]="isActive(preset) ? 'secondary' : 'outline'"
+          [attr.aria-pressed]="isActive(preset)"
+          [title]="'Jones (2010), ' + preset.source"
+          (click)="applyPreset(preset)"
+        >
+          {{ preset.name }}
+        </button>
+      }
+    </div>
+  </section>
+
+  <section aria-labelledby="agents-heading" class="flex flex-col gap-4">
+    <h2 id="agents-heading" class="text-lg font-semibold">Agents</h2>
+    <slime-setting-slider
+      label="Sensor angle"
+      unit="°"
+      [value]="settings().sensorAngle"
+      [min]="0"
+      [max]="180"
+      [step]="0.5"
+      (valueChange)="set('sensorAngle', $event)"
+    />
+    <slime-setting-slider
+      label="Rotation angle"
+      unit="°"
+      [value]="settings().rotationAngle"
+      [min]="0"
+      [max]="180"
+      [step]="0.5"
+      (valueChange)="set('rotationAngle', $event)"
+    />
+    <slime-setting-slider
+      label="Sensor offset"
+      unit=" px"
+      [value]="settings().sensorOffset"
+      [min]="1"
+      [max]="60"
+      (valueChange)="set('sensorOffset', $event)"
+    />
+    <slime-setting-slider
+      label="Step size"
+      unit=" px"
+      [value]="settings().stepSize"
+      [min]="0.1"
+      [max]="5"
+      [step]="0.1"
+      (valueChange)="set('stepSize', $event)"
+    />
+    <slime-setting-slider
+      label="Random turn chance"
+      [value]="settings().randomTurn"
+      [min]="0"
+      [max]="0.2"
+      [step]="0.001"
+      (valueChange)="set('randomTurn', $event)"
+    />
+  </section>
+
+  <section aria-labelledby="trail-heading" class="flex flex-col gap-4">
+    <h2 id="trail-heading" class="text-lg font-semibold">Trail</h2>
+    <slime-setting-slider
+      label="Deposit"
+      [value]="settings().deposit"
+      [min]="0"
+      [max]="20"
+      [step]="0.5"
+      (valueChange)="set('deposit', $event)"
+    />
+    <slime-setting-slider
+      label="Decay"
+      [value]="settings().decay"
+      [min]="0"
+      [max]="0.5"
+      [step]="0.005"
+      (valueChange)="set('decay', $event)"
+    />
+    <slime-setting-slider
+      label="Brightness"
+      hint="Display only."
+      [value]="settings().brightness"
+      [min]="0.05"
+      [max]="3"
+      [step]="0.05"
+      (valueChange)="set('brightness', $event)"
+    />
+  </section>
+
+  <section aria-labelledby="setup-heading" class="flex flex-col gap-4">
+    <div>
+      <h2 id="setup-heading" class="text-lg font-semibold">Setup</h2>
+      <p class="text-muted-foreground text-xs">Changing these restarts the simulation.</p>
+    </div>
+    <slime-setting-slider
+      label="Population"
+      unit="%"
+      hint="Agents as a share of the grid's cells."
+      [value]="settings().population"
+      [min]="1"
+      [max]="100"
+      (valueChange)="set('population', $event)"
+    />
+    <div>
+      <div id="collisions-label" class="mb-2 text-sm font-medium">Agents per cell</div>
+      <div role="group" aria-labelledby="collisions-label" class="grid grid-cols-2 gap-2">
+        @for (option of collisionOptions; track option.value) {
+          <button
+            hlmBtn
+            type="button"
+            size="sm"
+            [variant]="settings().collisions === option.value ? 'secondary' : 'outline'"
+            [attr.aria-pressed]="settings().collisions === option.value"
+            (click)="set('collisions', option.value)"
+          >
+            {{ option.label }}
+          </button>
+        }
+      </div>
+      <p class="text-muted-foreground mt-2 text-xs">
+        With one per cell, as in the paper, a blocked agent leaves no trail and turns away.
+      </p>
+    </div>
+    <div>
+      <div id="grid-label" class="mb-2 text-sm font-medium">Grid height</div>
+      <div role="group" aria-labelledby="grid-label" class="grid grid-cols-4 gap-2">
+        @for (height of gridHeights; track height) {
+          <button
+            hlmBtn
+            type="button"
+            size="sm"
+            class="tabular-nums"
+            [variant]="settings().gridHeight === height ? 'secondary' : 'outline'"
+            [attr.aria-pressed]="settings().gridHeight === height"
+            (click)="set('gridHeight', height)"
+          >
+            {{ height }}
+          </button>
+        }
+      </div>
+    </div>
+    <div>
+      <div id="spawn-label" class="mb-2 text-sm font-medium">Start shape</div>
+      <div role="group" aria-labelledby="spawn-label" class="grid grid-cols-3 gap-2">
+        @for (mode of spawnModes; track mode.value) {
+          <button
+            hlmBtn
+            type="button"
+            size="sm"
+            [variant]="settings().spawnMode === mode.value ? 'secondary' : 'outline'"
+            [attr.aria-pressed]="settings().spawnMode === mode.value"
+            (click)="set('spawnMode', mode.value)"
+          >
+            {{ mode.label }}
+          </button>
+        }
+      </div>
+    </div>
+  </section>
+
+  @if (summary()) {
+    <p class="text-muted-foreground text-xs tabular-nums">{{ summary() }}</p>
+  }
+</div>
