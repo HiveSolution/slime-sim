@@ -5,6 +5,8 @@ Thousands of simple agents follow and reinforce each other's trails, and
 transport networks emerge on their own. Every parameter of the model can be
 changed while it runs.
 
+**Try it: <https://hivesolution.github.io/slime-sim/>**
+
 The model is the one described in:
 
 > Jeff Jones, "Characteristics of Pattern Formation and Evolution in
@@ -24,6 +26,9 @@ npm start                    # dev server on http://localhost:4200
 npx ng test --watch=false    # unit tests
 npx ng build                 # production build in dist/slime-sim
 ```
+
+Every push to `main` runs the tests and deploys the site to GitHub Pages
+(`.github/workflows/deploy.yml`).
 
 ## How it works
 

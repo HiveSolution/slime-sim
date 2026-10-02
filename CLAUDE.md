@@ -40,6 +40,16 @@ Follow `G:\konstruct9\cortex\05-core\` (Stack, Colors, Typography, Icons).
   This replaces the hive's ask-before-pushing rule for this node only.
   Force-pushing and deleting branches still need a question.
 
+## Deployment
+
+Live at <https://hivesolution.github.io/slime-sim/>. Every push to `main`
+runs `.github/workflows/deploy.yml`: tests, a build with
+`--base-href /slime-sim/`, then GitHub Pages. A push therefore publishes;
+check the run with `gh run watch` and look at the live site afterwards.
+
+- Keep asset paths relative (`favicon.ico`, not `/favicon.ico`), or they
+  break under the `/slime-sim/` base path.
+
 ## Gotchas
 
 - The `Params` and `Species` structs in `src/sim/shaders.ts` and
