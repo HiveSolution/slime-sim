@@ -116,13 +116,25 @@ species**, the `avoidance` factor described above.
 The presets reproduce figures from the paper. They apply to every species
 and keep the species' colours.
 
+### Sharing
+
+- **Copy link** puts a link to the current settings in the address bar and on
+  the clipboard. Opening it starts the simulation with those settings. The
+  link holds every setting and species, but not painted food. Values in a
+  link are clamped to the sliders' limits.
+- **Save image** downloads the current picture as a PNG at the canvas'
+  resolution, without the control panel.
+
+The line at the bottom of the panel shows the grid size, the number of
+agents and the frame rate.
+
 ## Structure
 
-| Path        | What                                                                                          |
-| ----------- | --------------------------------------------------------------------------------------------- |
-| `src/sim/`  | The simulation: settings, start states, food, WGSL shaders, WebGPU driver. No framework code. |
-| `src/app/`  | The Angular app: canvas host and control panel                                                |
-| `libs/ui/*` | Spartan UI components (owned copies, editable)                                                |
+| Path        | What                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `src/sim/`  | The simulation: settings, start states, food, link encoding, WGSL shaders, WebGPU driver. No framework code. |
+| `src/app/`  | The Angular app: canvas host and control panel                                                               |
+| `libs/ui/*` | Spartan UI components (owned copies, editable)                                                               |
 
 ## Acknowledgements
 

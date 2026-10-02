@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { HlmSlider } from '@spartan-ng/helm/slider';
+import { Range } from '../sim';
 
 /** One labelled slider row of the control panel, with the current value shown beside the label. */
 @Component({
@@ -15,9 +16,9 @@ import { HlmSlider } from '@spartan-ng/helm/slider';
     <hlm-slider
       [aria-label]="label()"
       [value]="[value()]"
-      [min]="min()"
-      [max]="max()"
-      [step]="step()"
+      [min]="range().min"
+      [max]="range().max"
+      [step]="range().step"
       (valueChange)="onChange($event)"
     />
     @if (hint()) {
@@ -28,9 +29,7 @@ import { HlmSlider } from '@spartan-ng/helm/slider';
 export class SettingSlider {
   readonly label = input.required<string>();
   readonly value = input.required<number>();
-  readonly min = input(0);
-  readonly max = input(100);
-  readonly step = input(1);
+  readonly range = input.required<Range>();
   /** Text after the value, e.g. `°` or ` px`. */
   readonly unit = input('');
   readonly hint = input('');
@@ -38,7 +37,7 @@ export class SettingSlider {
   readonly valueChange = output<number>();
 
   protected readonly display = computed(() => {
-    const step = this.step();
+    const { step } = this.range();
     const decimals = step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step)));
     return this.value().toFixed(decimals) + this.unit();
   });

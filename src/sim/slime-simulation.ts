@@ -417,6 +417,20 @@ export class SlimeSimulation {
     this.device.queue.submit([encoder.finish()]);
   }
 
+  /**
+   * The current picture as a PNG. It renders first, because a WebGPU canvas
+   * only holds its picture until the browser has shown it.
+   */
+  capture(): Promise<Blob> {
+    this.render();
+    return new Promise((resolve, reject) => {
+      this.canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('The picture could not be encoded.'))),
+        'image/png',
+      );
+    });
+  }
+
   /** One animation frame: `stepsPerFrame` steps when running, then a render. */
   frame(running: boolean): void {
     if (running) {

@@ -3,7 +3,15 @@
  * Jones (2010), "Characteristics of Pattern Formation and Evolution in
  * Approximations of Physarum Transport Networks", Table 1.
  */
-export type SpawnMode = 'random' | 'disc' | 'ring';
+export const SPAWN_MODES = ['random', 'disc', 'ring'] as const;
+export type SpawnMode = (typeof SPAWN_MODES)[number];
+
+/** The values a numeric setting can take. */
+export interface Range {
+  min: number;
+  max: number;
+  step: number;
+}
 
 /** One trail channel per species, and the trail map has four. */
 export const MAX_SPECIES = 4;
@@ -67,6 +75,26 @@ export interface SimSettings {
   /** 1 to `MAX_SPECIES` entries. */
   species: readonly SpeciesSettings[];
 }
+
+/** Limits of the numeric settings: what the sliders offer and what a shared link may contain. */
+export const LIMITS = {
+  gridHeight: { min: 64, max: 2160, step: 1 },
+  population: { min: 1, max: 100, step: 1 },
+  decay: { min: 0, max: 0.5, step: 0.005 },
+  avoidance: { min: 0, max: 3, step: 0.05 },
+  stepsPerFrame: { min: 1, max: 20, step: 1 },
+  brightness: { min: 0.05, max: 3, step: 0.05 },
+  foodStrength: { min: 0, max: 50, step: 0.5 },
+} as const satisfies Partial<Record<keyof SimSettings, Range>>;
+
+export const SPECIES_LIMITS = {
+  sensorAngle: { min: 0, max: 180, step: 0.5 },
+  rotationAngle: { min: 0, max: 180, step: 0.5 },
+  sensorOffset: { min: 1, max: 60, step: 1 },
+  stepSize: { min: 0.1, max: 5, step: 0.1 },
+  deposit: { min: 0, max: 20, step: 0.5 },
+  randomTurn: { min: 0, max: 0.2, step: 0.001 },
+} as const satisfies Partial<Record<keyof SpeciesSettings, Range>>;
 
 /** Settings that need new buffers or textures, so changing them restarts the run. */
 export const RESET_KEYS = [

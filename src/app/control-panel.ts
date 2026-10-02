@@ -10,7 +10,10 @@ import {
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
   lucideBrush,
+  lucideCheck,
+  lucideDownload,
   lucideEraser,
+  lucideLink,
   lucidePause,
   lucidePlay,
   lucidePlus,
@@ -22,13 +25,16 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import {
   addSpecies,
   applyPreset,
+  LIMITS,
   matchesPreset,
   MAX_SPECIES,
   PRESETS,
   Preset,
+  Range,
   removeSpecies,
   SimSettings,
   SpawnMode,
+  SPECIES_LIMITS,
   SpeciesSettings,
 } from '../sim';
 import { SettingSlider } from './setting-slider';
@@ -40,6 +46,9 @@ export interface Brush {
   size: number;
 }
 
+/** What became of the last "Copy link": copied, or only shown in the address bar. */
+export type LinkStatus = 'idle' | 'copied' | 'shown';
+
 /** The simulation's controls. It only edits `settings`; the host applies them. */
 @Component({
   selector: 'slime-control-panel',
@@ -47,7 +56,10 @@ export interface Brush {
   viewProviders: [
     provideIcons({
       lucideBrush,
+      lucideCheck,
+      lucideDownload,
       lucideEraser,
+      lucideLink,
       lucidePause,
       lucidePlay,
       lucidePlus,
@@ -66,13 +78,22 @@ export class ControlPanel {
   readonly brush = model.required<Brush>();
   /** e.g. `960 × 540 · 77,760 agents`; empty until the simulation is up. */
   readonly summary = input('');
+  readonly linkStatus = input<LinkStatus>('idle');
 
   readonly step = output<void>();
   readonly restart = output<void>();
   readonly clearFood = output<void>();
+  readonly copyLink = output<void>();
+  readonly saveImage = output<void>();
 
   protected readonly presets = PRESETS;
   protected readonly maxSpecies = MAX_SPECIES;
+  protected readonly limits = LIMITS;
+  protected readonly speciesLimits = SPECIES_LIMITS;
+  protected readonly brushSizes: Range = { min: 1, max: 40, step: 1 };
+  protected readonly linkLabel = computed(() =>
+    this.linkStatus() === 'copied' ? 'Link copied' : 'Copy link',
+  );
   protected readonly gridHeights = [270, 540, 720, 1080];
   protected readonly collisionOptions = [
     { value: true, label: 'One' },

@@ -46,7 +46,7 @@
     @case ('ready') {
       @if (panelOpen()) {
         <aside
-          class="bg-card/90 text-card-foreground absolute inset-y-0 right-0 flex w-80 max-w-full flex-col border-l backdrop-blur"
+          class="bg-card/90 text-card-foreground absolute inset-x-0 bottom-0 flex h-[45dvh] flex-col border-t backdrop-blur sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:h-auto sm:w-80 sm:border-t-0 sm:border-l"
           aria-label="Controls"
         >
           <header class="flex items-center justify-between border-b px-4 py-2">
@@ -68,9 +68,12 @@
             [(running)]="running"
             [(brush)]="brush"
             [summary]="summary()"
+            [linkStatus]="linkStatus()"
             (step)="step()"
             (restart)="restart()"
             (clearFood)="clearFood()"
+            (copyLink)="copyLink()"
+            (saveImage)="saveImage()"
           />
         </aside>
       } @else {

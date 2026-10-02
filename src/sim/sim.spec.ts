@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_SPECIES,
   gridSize,
+  LIMITS,
   matchesPreset,
   MAX_SPECIES,
   needsReset,
@@ -16,7 +17,9 @@ import {
   removeSpecies,
   SimSettings,
   SPECIES_COLORS,
+  SPECIES_LIMITS,
 } from './settings';
+import { decodeSettings, encodeSettings } from './share';
 
 /** Deterministic stand-in for Math.random. */
 function sequence(): () => number {
@@ -315,5 +318,85 @@ describe('food map', () => {
     expect(resized[30 * doubled.width + 20]).toBe(FOOD);
     expect(resized[30 * doubled.width + 60]).toBe(0);
     expect(count(resized)).toBe(count(map) * 4);
+  });
+});
+
+describe('shared links', () => {
+  const custom: SimSettings = {
+    gridHeight: 720,
+    population: 42,
+    spawnMode: 'ring',
+    collisions: false,
+    wrap: false,
+    decay: 0.035,
+    avoidance: 2.25,
+    stepsPerFrame: 7,
+    brightness: 1.35,
+    foodStrength: 12.5,
+    species: [
+      {
+        color: '#d697cf',
+        sensorAngle: 112.5,
+        rotationAngle: 67.5,
+        sensorOffset: 13,
+        stepSize: 0.3,
+        deposit: 7.5,
+        randomTurn: 0.004,
+        repel: true,
+      },
+      { ...DEFAULT_SPECIES, color: '#82b9d0' },
+    ],
+  };
+
+  it('round-trip every setting', () => {
+    expect(decodeSettings(encodeSettings(custom))).toEqual(custom);
+    expect(decodeSettings(encodeSettings(DEFAULT_SETTINGS))).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('are plain query syntax without float noise', () => {
+    const noisy = { ...DEFAULT_SETTINGS, decay: 0.1 + 0.2 };
+    const encoded = encodeSettings(noisy);
+    expect(encoded).toContain('d=0.3&');
+    expect(encoded).toContain('s=d08456_22.5_45_9_1_5_0_0');
+    expect(encoded).toMatch(/^[\w.=&-]+$/);
+  });
+
+  it('accept a leading # and fall back to the base for what is missing', () => {
+    const decoded = decodeSettings('#v=1&p=30', custom);
+    expect(decoded).toEqual({ ...custom, population: 30 });
+    expect(decodeSettings('', custom)).toEqual(custom);
+  });
+
+  it('clamp numbers to their limits', () => {
+    const decoded = decodeSettings('v=1&g=999999&p=-5&d=7&n=2.6&b=0&s=d08456_999_-3_0_100_1e9_5_1');
+    expect(decoded.gridHeight).toBe(LIMITS.gridHeight.max);
+    expect(decoded.population).toBe(LIMITS.population.min);
+    expect(decoded.decay).toBe(LIMITS.decay.max);
+    expect(decoded.stepsPerFrame).toBe(3);
+    expect(decoded.brightness).toBe(LIMITS.brightness.min);
+    expect(decoded.species[0]).toEqual({
+      color: '#d08456',
+      sensorAngle: SPECIES_LIMITS.sensorAngle.max,
+      rotationAngle: SPECIES_LIMITS.rotationAngle.min,
+      sensorOffset: SPECIES_LIMITS.sensorOffset.min,
+      stepSize: SPECIES_LIMITS.stepSize.max,
+      deposit: SPECIES_LIMITS.deposit.max,
+      randomTurn: SPECIES_LIMITS.randomTurn.max,
+      repel: true,
+    });
+  });
+
+  it('ignore malformed values and extra species', () => {
+    const decoded = decodeSettings(
+      'v=1&g=abc&p=NaN&m=spiral&c=yes&d=Infinity&s=<script>_x__&s=zzzzzz&s=1&s=2&s=3&s=4',
+    );
+    expect(decoded.gridHeight).toBe(DEFAULT_SETTINGS.gridHeight);
+    expect(decoded.population).toBe(DEFAULT_SETTINGS.population);
+    expect(decoded.spawnMode).toBe(DEFAULT_SETTINGS.spawnMode);
+    expect(decoded.collisions).toBe(DEFAULT_SETTINGS.collisions);
+    expect(decoded.decay).toBe(DEFAULT_SETTINGS.decay);
+    expect(decoded.species.length).toBe(MAX_SPECIES);
+    expect(decoded.species[0]).toEqual(DEFAULT_SPECIES);
+    expect(decoded.species[1]).toEqual({ ...DEFAULT_SPECIES, color: SPECIES_COLORS[1] });
   });
 });

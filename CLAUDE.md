@@ -52,6 +52,13 @@ Follow `G:\konstruct9\cortex\05-core\` (Stack, Colors, Typography, Icons).
   uses one fails at startup with the compiler's message shown on the page.
 - A setting that changes buffer or texture sizes, or the start state, must be
   in `RESET_KEYS` (`src/sim/settings.ts`).
+- A new setting also needs a key in `src/sim/share.ts` (encode and decode),
+  or shared links silently drop it. A numeric one needs an entry in `LIMITS`
+  or `SPECIES_LIMITS`, which both the sliders and the link decoder use. Keep
+  old links working: add keys, don't rename or reorder them.
+- To test "Copy link" in headless Chrome, grant `clipboard-sanitized-write`
+  (and `clipboard-read` to read it back); `clipboard-write` alone is not
+  enough. This writes to the real system clipboard.
 - Unit tests run in jsdom, which has no WebGPU, so they cover only the pure
   code. To check the simulation itself, drive Chrome headless with
   `--enable-unsafe-webgpu --enable-gpu --ignore-gpu-blocklist` (puppeteer-core

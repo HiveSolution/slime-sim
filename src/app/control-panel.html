@@ -15,11 +15,27 @@
         Restart
       </button>
     </div>
+    <div class="grid grid-cols-2 gap-2">
+      <button hlmBtn type="button" variant="outline" (click)="copyLink.emit()">
+        <ng-icon [name]="linkStatus() === 'idle' ? 'lucideLink' : 'lucideCheck'" />
+        {{ linkLabel() }}
+      </button>
+      <button hlmBtn type="button" variant="outline" (click)="saveImage.emit()">
+        <ng-icon name="lucideDownload" />
+        Save image
+      </button>
+    </div>
+    <p class="text-muted-foreground -mt-2 text-xs" role="status">
+      @if (linkStatus() === 'shown') {
+        Copying wasn't allowed. The link is in the address bar.
+      } @else {
+        The link holds every setting, but not painted food.
+      }
+    </p>
     <slime-setting-slider
       label="Steps per frame"
       [value]="settings().stepsPerFrame"
-      [min]="1"
-      [max]="20"
+      [range]="limits.stepsPerFrame"
       (valueChange)="set('stepsPerFrame', $event)"
     />
   </section>
@@ -127,51 +143,40 @@
       label="Sensor angle"
       unit="°"
       [value]="species().sensorAngle"
-      [min]="0"
-      [max]="180"
-      [step]="0.5"
+      [range]="speciesLimits.sensorAngle"
       (valueChange)="setSpecies('sensorAngle', $event)"
     />
     <slime-setting-slider
       label="Rotation angle"
       unit="°"
       [value]="species().rotationAngle"
-      [min]="0"
-      [max]="180"
-      [step]="0.5"
+      [range]="speciesLimits.rotationAngle"
       (valueChange)="setSpecies('rotationAngle', $event)"
     />
     <slime-setting-slider
       label="Sensor offset"
       unit=" px"
       [value]="species().sensorOffset"
-      [min]="1"
-      [max]="60"
+      [range]="speciesLimits.sensorOffset"
       (valueChange)="setSpecies('sensorOffset', $event)"
     />
     <slime-setting-slider
       label="Step size"
       unit=" px"
       [value]="species().stepSize"
-      [min]="0.1"
-      [max]="5"
-      [step]="0.1"
+      [range]="speciesLimits.stepSize"
       (valueChange)="setSpecies('stepSize', $event)"
     />
     <slime-setting-slider
       label="Random turn chance"
       [value]="species().randomTurn"
-      [min]="0"
-      [max]="0.2"
-      [step]="0.001"
+      [range]="speciesLimits.randomTurn"
       (valueChange)="setSpecies('randomTurn', $event)"
     />
     <slime-setting-slider
       label="Deposit"
       [value]="species().deposit"
-      [min]="0"
-      [max]="20"
-      [step]="0.5"
+      [range]="speciesLimits.deposit"
       (valueChange)="setSpecies('deposit', $event)"
     />
   </section>
@@ -198,9 +203,7 @@
     <slime-setting-slider
       label="Decay"
       [value]="settings().decay"
-      [min]="0"
-      [max]="0.5"
-      [step]="0.005"
+      [range]="limits.decay"
       (valueChange)="set('decay', $event)"
     />
     @if (settings().species.length > 1) {
@@ -208,9 +211,7 @@
         label="Avoid other species"
         hint="How strongly other species' trails repel, compared with the pull of an agent's own."
         [value]="settings().avoidance"
-        [min]="0"
-        [max]="3"
-        [step]="0.05"
+        [range]="limits.avoidance"
         (valueChange)="set('avoidance', $event)"
       />
     }
@@ -218,9 +219,7 @@
       label="Brightness"
       hint="Display only."
       [value]="settings().brightness"
-      [min]="0.05"
-      [max]="3"
-      [step]="0.05"
+      [range]="limits.brightness"
       (valueChange)="set('brightness', $event)"
     />
   </section>
@@ -255,17 +254,14 @@
       label="Brush size"
       unit=" px"
       [value]="brush().size"
-      [min]="1"
-      [max]="40"
+      [range]="brushSizes"
       (valueChange)="setBrush('size', $event)"
     />
     <slime-setting-slider
       label="Food strength"
       hint="What each cell of a food source gives off per step. A deposit is 5 by default."
       [value]="settings().foodStrength"
-      [min]="0"
-      [max]="50"
-      [step]="0.5"
+      [range]="limits.foodStrength"
       (valueChange)="set('foodStrength', $event)"
     />
     <button hlmBtn type="button" variant="outline" (click)="clearFood.emit()">
@@ -284,8 +280,7 @@
       unit="%"
       hint="Agents as a share of the grid's cells."
       [value]="settings().population"
-      [min]="1"
-      [max]="100"
+      [range]="limits.population"
       (valueChange)="set('population', $event)"
     />
     <div>
