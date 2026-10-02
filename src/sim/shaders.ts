@@ -14,6 +14,11 @@ import { MAX_SPECIES } from './settings';
  *
  * Species are not in the paper. Each one deposits into its own channel of
  * the trail map, and an agent senses its own channel minus the others.
+ *
+ * Food is the paper's pre-pattern stimulus. The paper projects it onto the
+ * trail map; here it has a map of its own that diffuses and decays the same
+ * way and that every species is drawn to. With one species the two are the
+ * same thing, because diffusion is linear.
  */
 
 /** Uniforms shared by every pass. Keep in sync with `packParams` in params.ts. */
@@ -26,6 +31,8 @@ struct Species {
   deposit: f32,
   randomTurn: f32,
   gain: f32,
+  // 1 when drawn to its own trail, -1 when repelled by it.
+  ownTrail: f32,
   color: vec4f,
 }
 
@@ -38,6 +45,9 @@ struct Params {
   seed: u32,
   collisions: u32,
   speciesCount: u32,
+  // 1 when the edges wrap around, 0 when they are walls.
+  wrap: u32,
+  foodStrength: f32,
   colorBackground: vec4f,
   colorPeak: vec4f,
   species: array<Species, ${MAX_SPECIES}>,
@@ -46,6 +56,17 @@ struct Params {
 // Agents are dealt out to the species in turn, so each has an equal share.
 fn speciesOf(agentIndex: u32) -> u32 {
   return agentIndex % params.speciesCount;
+}
+
+fn insideGrid(cell: vec2i) -> bool {
+  let size = vec2i(params.size);
+  return cell.x >= 0 && cell.y >= 0 && cell.x < size.x && cell.y < size.y;
+}
+
+// The cell on the other side when the edges wrap. Good for up to one grid size outside.
+fn wrapCell(cell: vec2i) -> vec2i {
+  let size = vec2i(params.size);
+  return ((cell % size) + size) % size;
 }
 `;
 
@@ -76,6 +97,7 @@ ${PARAMS}
 @group(0) @binding(1) var<storage, read_write> agents: array<vec4f>;
 @group(0) @binding(2) var trail: texture_2d<f32>;
 @group(0) @binding(3) var<storage, read_write> occupancy: array<atomic<u32>>;
+@group(0) @binding(4) var food: texture_2d<f32>;
 
 const TAU = 6.283185307179586;
 
@@ -91,12 +113,16 @@ fn unitFloat(value: u32) -> f32 {
 }
 
 // What the sensor at the given distance and direction reads: the trail
-// channels, weighted. The boundary is periodic.
+// channels, weighted, plus the food. Beyond a wall there is nothing.
 fn sense(position: vec2f, heading: f32, distance: f32, weights: vec4f) -> f32 {
-  let size = vec2i(params.size);
   let sensor = position + vec2f(cos(heading), sin(heading)) * distance;
-  let cell = ((vec2i(floor(sensor)) % size) + size) % size;
-  return dot(textureLoad(trail, cell, 0), weights);
+  var cell = vec2i(floor(sensor));
+  if (params.wrap == 1u) {
+    cell = wrapCell(cell);
+  } else if (!insideGrid(cell)) {
+    return 0.0;
+  }
+  return dot(textureLoad(trail, cell, 0), weights) + textureLoad(food, cell, 0).r;
 }
 
 fn cellIndex(position: vec2f) -> u32 {
@@ -131,9 +157,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   let speciesIndex = speciesOf(index);
   let species = params.species[speciesIndex];
-  // Attracted to its own trail, repelled by the others.
+  // Drawn to (or repelled by) its own trail, repelled by the others.
   var weights = vec4f(-params.avoidance);
-  weights[speciesIndex] = 1.0;
+  weights[speciesIndex] = species.ownTrail;
 
   var random = pcg(index ^ pcg(params.seed));
 
@@ -161,12 +187,17 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   heading -= floor(heading / TAU) * TAU;
 
   var destination = position + vec2f(cos(heading), sin(heading)) * species.stepSize;
-  destination -= floor(destination / params.size) * params.size;
-  // A float just below the edge can round up to it.
-  destination = min(destination, params.size - 0.01);
-
   var moved = true;
-  if (params.collisions == 1u) {
+  if (params.wrap == 1u) {
+    destination -= floor(destination / params.size) * params.size;
+    // A float just below the edge can round up to it.
+    destination = min(destination, params.size - 0.01);
+  } else if (!insideGrid(vec2i(floor(destination)))) {
+    // A wall blocks the move like an occupied cell does.
+    moved = false;
+  }
+
+  if (moved && params.collisions == 1u) {
     let oldCell = cellIndex(position);
     let newCell = cellIndex(destination);
     if (newCell != oldCell) {
@@ -189,25 +220,49 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 `;
 
-/** 3x3 mean filter, then decay. */
+/**
+ * 3x3 mean filter, then decay, for the trail map and the food map. The food
+ * sources then add to the food map.
+ */
 export const DIFFUSE_SHADER = /* wgsl */ `
 ${PARAMS}
 ${FULLSCREEN_VERTEX}
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var trail: texture_2d<f32>;
+@group(0) @binding(2) var food: texture_2d<f32>;
+@group(0) @binding(3) var foodSources: texture_2d<f32>;
+
+struct DiffuseOut {
+  @location(0) trail: vec4f,
+  @location(1) food: vec4f,
+}
 
 @fragment
-fn main(@builtin(position) position: vec4f) -> @location(0) vec4f {
-  let size = vec2i(params.size);
+fn main(@builtin(position) position: vec4f) -> DiffuseOut {
   let cell = vec2i(position.xy);
-  var sum = vec4f(0.0);
+  var trailSum = vec4f(0.0);
+  var foodSum = 0.0;
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
-      sum += textureLoad(trail, (cell + vec2i(dx, dy) + size) % size, 0);
+      var neighbour = cell + vec2i(dx, dy);
+      if (params.wrap == 1u) {
+        neighbour = wrapCell(neighbour);
+      } else if (!insideGrid(neighbour)) {
+        // Nothing beyond a wall, so what diffuses into it is lost.
+        continue;
+      }
+      trailSum += textureLoad(trail, neighbour, 0);
+      foodSum += textureLoad(food, neighbour, 0).r;
     }
   }
-  return sum / 9.0 * (1.0 - params.decay);
+  let keep = (1.0 - params.decay) / 9.0;
+  let source = textureLoad(foodSources, cell, 0).r;
+
+  var out: DiffuseOut;
+  out.trail = trailSum * keep;
+  out.food = vec4f(foodSum * keep + source * params.foodStrength, 0.0, 0.0, 1.0);
+  return out;
 }
 `;
 
@@ -247,7 +302,7 @@ fn fragment(in: DepositOut) -> @location(0) vec4f {
 }
 `;
 
-/** Maps the trail map to colours on the canvas. */
+/** Maps the trail map to colours on the canvas and marks the food sources. */
 export const DISPLAY_SHADER = /* wgsl */ `
 ${PARAMS}
 ${FULLSCREEN_VERTEX}
@@ -255,6 +310,7 @@ ${FULLSCREEN_VERTEX}
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var trail: texture_2d<f32>;
 @group(0) @binding(2) var trailSampler: sampler;
+@group(0) @binding(3) var foodSources: texture_2d<f32>;
 
 @fragment
 fn main(in: FullscreenOut) -> @location(0) vec4f {
@@ -271,6 +327,10 @@ fn main(in: FullscreenOut) -> @location(0) vec4f {
     let low = mix(background, species.color.rgb, smoothstep(0.0, 0.6, t));
     color += mix(low, params.colorPeak.rgb, smoothstep(0.6, 1.0, t)) - background;
   }
-  return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), 1.0);
+  color = clamp(color, vec3f(0.0), vec3f(1.0));
+
+  let source = textureSampleLevel(foodSources, trailSampler, uv, 0.0).r;
+  color = mix(color, params.colorPeak.rgb, smoothstep(0.3, 0.7, source));
+  return vec4f(color, 1.0);
 }
 `;

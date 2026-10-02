@@ -27,6 +27,11 @@ export interface SpeciesSettings {
   deposit: number;
   /** Probability per step of picking a random new direction [pCD]. */
   randomTurn: number;
+  /**
+   * Turn away from the species' own trail instead of towards it: the
+   * paper's chemorepulsion, which gives regular spots and stripes.
+   */
+  repel: boolean;
 }
 
 export interface SimSettings {
@@ -40,8 +45,16 @@ export interface SimSettings {
    * and the agent then deposits nothing and picks a random new direction.
    */
   collisions: boolean;
+  /**
+   * Whether the grid wraps around at its edges (the paper's periodic
+   * boundary). Otherwise the edges are walls: they block agents, and
+   * nothing is sensed or diffuses back from beyond them.
+   */
+  wrap: boolean;
   /** Fraction of the trail lost per step after diffusion [decayT]. */
   decay: number;
+  /** What every cell of a food source adds to the food map per step. */
+  foodStrength: number;
   /**
    * How strongly agents are repelled by other species' trails, relative to
    * the pull of their own. 0 makes the species ignore each other's trails.
@@ -75,6 +88,7 @@ export const DEFAULT_SPECIES: SpeciesSettings = {
   stepSize: 1,
   deposit: 5,
   randomTurn: 0,
+  repel: false,
 };
 
 /** The paper's defaults (Table 1), which give the dynamic, never-settling network of Figure 4. */
@@ -83,7 +97,9 @@ export const DEFAULT_SETTINGS: SimSettings = {
   population: 15,
   spawnMode: 'random',
   collisions: true,
+  wrap: true,
   decay: 0.1,
+  foodStrength: 5,
   avoidance: 1,
   stepsPerFrame: 1,
   brightness: 0.5,
@@ -105,32 +121,59 @@ export const PRESETS: readonly Preset[] = [
     id: 'dynamic',
     name: 'Dynamic',
     source: 'Fig. 4',
-    settings: { population: 15 },
-    species: { sensorAngle: 22.5, rotationAngle: 45, sensorOffset: 9 },
+    settings: { population: 15, wrap: true },
+    species: { sensorAngle: 22.5, rotationAngle: 45, sensorOffset: 9, repel: false },
   },
   {
     id: 'minimising',
     name: 'Minimising',
     source: 'Fig. 5',
-    settings: { population: 15 },
-    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 9 },
+    settings: { population: 15, wrap: true },
+    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 9, repel: false },
   },
   {
     id: 'fine',
     name: 'Fine grain',
     source: 'Fig. 10',
-    settings: { population: 15 },
-    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 3 },
+    settings: { population: 15, wrap: true },
+    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 3, repel: false },
   },
   {
     id: 'coarse',
     name: 'Coarse grain',
     source: 'Fig. 10',
-    settings: { population: 15 },
-    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 25 },
+    settings: { population: 15, wrap: true },
+    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 25, repel: false },
+  },
+  {
+    id: 'sheet',
+    name: 'Sheet',
+    source: 'Fig. 9',
+    settings: { population: 20, wrap: false },
+    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 9, repel: false },
+  },
+  {
+    id: 'spots',
+    name: 'Spots',
+    source: 'Fig. 22',
+    settings: { population: 10, wrap: true },
+    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 27, repel: true },
+  },
+  {
+    id: 'stripes',
+    name: 'Stripes',
+    source: 'Fig. 16',
+    settings: { population: 20, wrap: true },
+    species: { sensorAngle: 112.5, rotationAngle: 67.5, sensorOffset: 13, repel: true },
+  },
+  {
+    id: 'foraging',
+    name: 'Foraging',
+    source: 'Fig. 18',
+    settings: { population: 2, wrap: false },
+    species: { sensorAngle: 45, rotationAngle: 45, sensorOffset: 9, repel: false },
   },
 ];
-
 /** The settings with a preset applied; species keep their colours. */
 export function applyPreset(settings: SimSettings, preset: Preset): SimSettings {
   return {

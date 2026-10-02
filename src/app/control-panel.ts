@@ -9,6 +9,8 @@ import {
 } from '@angular/core';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
+  lucideBrush,
+  lucideEraser,
   lucidePause,
   lucidePlay,
   lucidePlus,
@@ -31,12 +33,21 @@ import {
 } from '../sim';
 import { SettingSlider } from './setting-slider';
 
+/** How dragging on the canvas changes the food sources. */
+export interface Brush {
+  mode: 'paint' | 'erase';
+  /** Radius in grid cells. */
+  size: number;
+}
+
 /** The simulation's controls. It only edits `settings`; the host applies them. */
 @Component({
   selector: 'slime-control-panel',
   imports: [HlmButton, NgIcon, SettingSlider],
   viewProviders: [
     provideIcons({
+      lucideBrush,
+      lucideEraser,
       lucidePause,
       lucidePlay,
       lucidePlus,
@@ -52,11 +63,13 @@ import { SettingSlider } from './setting-slider';
 export class ControlPanel {
   readonly settings = model.required<SimSettings>();
   readonly running = model.required<boolean>();
+  readonly brush = model.required<Brush>();
   /** e.g. `960 × 540 · 77,760 agents`; empty until the simulation is up. */
   readonly summary = input('');
 
   readonly step = output<void>();
   readonly restart = output<void>();
+  readonly clearFood = output<void>();
 
   protected readonly presets = PRESETS;
   protected readonly maxSpecies = MAX_SPECIES;
@@ -64,6 +77,18 @@ export class ControlPanel {
   protected readonly collisionOptions = [
     { value: true, label: 'One' },
     { value: false, label: 'Unlimited' },
+  ];
+  protected readonly wrapOptions = [
+    { value: true, label: 'Wrap around' },
+    { value: false, label: 'Walls' },
+  ];
+  protected readonly repelOptions = [
+    { value: false, label: 'Follow' },
+    { value: true, label: 'Avoid' },
+  ];
+  protected readonly brushModes: { value: Brush['mode']; label: string; icon: string }[] = [
+    { value: 'paint', label: 'Paint', icon: 'lucideBrush' },
+    { value: 'erase', label: 'Erase', icon: 'lucideEraser' },
   ];
   protected readonly spawnModes: { value: SpawnMode; label: string }[] = [
     { value: 'random', label: 'Random' },
@@ -91,6 +116,10 @@ export class ControlPanel {
         i === index ? { ...species, [key]: value } : species,
       ),
     }));
+  }
+
+  protected setBrush<K extends keyof Brush>(key: K, value: Brush[K]): void {
+    this.brush.update((brush) => ({ ...brush, [key]: value }));
   }
 
   protected setColor(event: Event): void {

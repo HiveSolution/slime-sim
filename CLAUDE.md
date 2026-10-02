@@ -22,8 +22,9 @@ Follow `G:\konstruct9\cortex\05-core\` (Stack, Colors, Typography, Icons).
 
 - Dark only for now: `index.html` ships `<html class="dark">`.
 - Tokens are defined once in `src/styles.css`. Use token classes, never hex
-  values. The trail colours are read from the tokens at startup
-  (`readColors` in `src/app/app.ts`).
+  values. The background and peak colours of the picture are read from the
+  tokens at startup (`readColors` in `src/app/app.ts`); species colours are
+  user settings.
 
 ## Conventions
 
@@ -35,6 +36,9 @@ Follow `G:\konstruct9\cortex\05-core\` (Stack, Colors, Typography, Icons).
   (config: `components.json`).
 - Run `npx prettier --write "src/**/*.{ts,html,css}"`, `npx ng test --watch=false`
   and `npx ng build` before committing.
+- Commit and push each finished milestone to `main` without asking first.
+  This replaces the hive's ask-before-pushing rule for this node only.
+  Force-pushing and deleting branches still need a question.
 
 ## Gotchas
 

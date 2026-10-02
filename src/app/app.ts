@@ -21,7 +21,13 @@ import {
   SlimeSimulation,
   WebGpuUnavailableError,
 } from '../sim';
-import { ControlPanel } from './control-panel';
+import { Brush, ControlPanel } from './control-panel';
+
+/** A point of the canvas, 0..1 from its top left. */
+interface CanvasPoint {
+  u: number;
+  v: number;
+}
 
 type Status = 'loading' | 'ready' | 'unsupported' | 'error';
 
@@ -35,6 +41,7 @@ type Status = 'loading' | 'ready' | 'unsupported' | 'error';
 export class App {
   protected readonly settings = signal<SimSettings>(DEFAULT_SETTINGS);
   protected readonly running = signal(true);
+  protected readonly brush = signal<Brush>({ mode: 'paint', size: 4 });
   protected readonly panelOpen = signal(true);
   protected readonly status = signal<Status>('loading');
   protected readonly errorMessage = signal('');
@@ -44,6 +51,8 @@ export class App {
   private readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
   private readonly simulation = signal<SlimeSimulation | null>(null);
   private frameHandle = 0;
+  /** Where the pointer was last while painting; null when it isn't down. */
+  private lastPoint: CanvasPoint | null = null;
   private resizeObserver: ResizeObserver | null = null;
 
   protected readonly summary = computed(() => {
@@ -82,6 +91,38 @@ export class App {
   protected restart(): void {
     this.simulation()?.reset();
     this.runVersion.update((version) => version + 1);
+  }
+
+  protected clearFood(): void {
+    this.simulation()?.clearFood();
+  }
+
+  protected onPointerDown(event: PointerEvent): void {
+    if (event.button !== 0 || !this.simulation()) {
+      return;
+    }
+    const canvas = this.canvas().nativeElement;
+    canvas.setPointerCapture(event.pointerId);
+    this.lastPoint = canvasPoint(canvas, event);
+    this.paint(this.lastPoint, this.lastPoint);
+  }
+
+  protected onPointerMove(event: PointerEvent): void {
+    if (!this.lastPoint) {
+      return;
+    }
+    const point = canvasPoint(this.canvas().nativeElement, event);
+    this.paint(this.lastPoint, point);
+    this.lastPoint = point;
+  }
+
+  protected onPointerUp(): void {
+    this.lastPoint = null;
+  }
+
+  private paint(from: CanvasPoint, to: CanvasPoint): void {
+    const { mode, size } = this.brush();
+    this.simulation()?.paintFood(from, to, size, mode === 'erase');
   }
 
   private async start(): Promise<void> {
@@ -125,6 +166,14 @@ export class App {
       canvas.height = height;
     }
   }
+}
+
+function canvasPoint(canvas: HTMLCanvasElement, event: PointerEvent): CanvasPoint {
+  const bounds = canvas.getBoundingClientRect();
+  return {
+    u: (event.clientX - bounds.left) / bounds.width,
+    v: (event.clientY - bounds.top) / bounds.height,
+  };
 }
 
 /** Background and peak colour come from the design tokens in styles.css; species bring their own. */

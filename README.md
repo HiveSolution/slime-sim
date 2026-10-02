@@ -39,14 +39,25 @@ front, right). One step of the simulation is:
 4. **Diffuse and decay.** The trail map is blurred with a 3×3 mean filter
    and multiplied by `1 - decay`.
 
-The grid wraps around at the edges.
+By default the grid wraps around at the edges.
+
+The paper's other experiments are here too:
+
+- **Avoiding the own trail** (the paper's chemorepulsion): agents turn away
+  from the strongest trail instead of towards it, which gives regular spots
+  and stripes.
+- **Walls** instead of wrapping edges: a wall blocks an agent like an occupied
+  cell does.
+- **Food** (the paper's pre-pattern stimuli): sources painted onto the grid
+  that give off attractant every step. The network catches on them and
+  shrinks to connect them.
 
 On the GPU a step is three passes:
 
 | Pass    | Kind    | What it does                                                    |
 | ------- | ------- | --------------------------------------------------------------- |
 | Agents  | Compute | Steps 1 and 2 for every agent in parallel                       |
-| Diffuse | Render  | Step 4, from one trail texture into the other                   |
+| Diffuse | Render  | Step 4, from one trail texture into the other; same for food    |
 | Deposit | Render  | Step 3: draws agents as additive points onto the diffused trail |
 
 A fourth pass colours the trail map onto the canvas.
@@ -65,6 +76,12 @@ A fourth pass colours the trail map onto the canvas.
   species' trail and repelled by the others: what a sensor reads is its own
   trail minus `avoidance` times the sum of the other trails. All species
   share the grid, so with one agent per cell they also block each other.
+- **Food** has a map of its own instead of being added to the trail map as
+  in the paper, so that it attracts every species. It diffuses and decays
+  like the trail. With one species the result is the same.
+- **Walls**: the paper doesn't say what its non-periodic boundary does to
+  sensing and diffusion. Here a sensor beyond a wall reads nothing, and
+  trail that diffuses past a wall is lost.
 - The trail map uses 16-bit floats.
 
 ## Controls
@@ -76,6 +93,9 @@ A fourth pass colours the trail map onto the canvas.
 | Sensor offset      | SO         | Distance from the agent to its sensors; sets pattern scale |
 | Step size          | SS         | Distance moved per step                                    |
 | Random turn chance | pCD        | Probability per step of a random new heading               |
+| Own trail          |            | Follow it, or avoid it (the paper's chemorepulsion)        |
+| Edges              | Boundary   | Wrap around (paper default) or walls                       |
+| Food strength      | wProj      | What each cell of a food source gives off per step         |
 | Deposit            | depT       | Trail added per successful move                            |
 | Decay              | decayT     | Share of the trail lost per step                           |
 | Population         | %p         | Agents as a percentage of the grid's cells                 |
@@ -85,7 +105,11 @@ A fourth pass colours the trail map onto the canvas.
 | Steps per frame    |            | Simulation speed                                           |
 | Brightness         |            | Display only                                               |
 
-Sensor angle to Deposit are set per species; pick the species with the
+Drag on the picture to paint food sources; the Food section has the brush
+(paint or erase), its size, and a button to clear all food. Food stays in
+place when the simulation restarts.
+
+Sensor angle to Deposit, and Own trail, are set per species; pick the species with the
 numbered buttons. With more than one species there is also **Avoid other
 species**, the `avoidance` factor described above.
 
@@ -94,11 +118,11 @@ and keep the species' colours.
 
 ## Structure
 
-| Path        | What                                                                                    |
-| ----------- | --------------------------------------------------------------------------------------- |
-| `src/sim/`  | The simulation: settings, start states, WGSL shaders, WebGPU driver. No framework code. |
-| `src/app/`  | The Angular app: canvas host and control panel                                          |
-| `libs/ui/*` | Spartan UI components (owned copies, editable)                                          |
+| Path        | What                                                                                          |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| `src/sim/`  | The simulation: settings, start states, food, WGSL shaders, WebGPU driver. No framework code. |
+| `src/app/`  | The Angular app: canvas host and control panel                                                |
+| `libs/ui/*` | Spartan UI components (owned copies, editable)                                                |
 
 ## Acknowledgements
 

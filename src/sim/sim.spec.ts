@@ -1,6 +1,7 @@
 import { AGENT_STRIDE, createAgents } from './agents';
 import { parseHexColor } from './colors';
-import { packParams, PARAMS_SIZE } from './params';
+import { createFoodMap, FOOD, paintStroke, resizeFoodMap } from './food';
+import { canvasToGrid, packParams, PARAMS_SIZE } from './params';
 import {
   addSpecies,
   agentCount,
@@ -193,7 +194,8 @@ describe('packParams', () => {
     expect([f[2], f[3]]).toEqual([1, 1]);
     expect(f[4]).toBeCloseTo(0.25);
     expect(f[5]).toBeCloseTo(1.5);
-    expect([u[6], u[7], u[8], u[9]]).toEqual([1234, 77, 1, 1]);
+    expect([u[6], u[7], u[8], u[9], u[10]]).toEqual([1234, 77, 1, 1, 1]);
+    expect(f[11]).toBe(DEFAULT_SETTINGS.foodStrength);
     expect(f[12]).toBeCloseTo(0.1); // background at byte 48
     expect(f[16]).toBeCloseTo(0.7); // peak at byte 64
   });
@@ -218,9 +220,100 @@ describe('packParams', () => {
     expect(f[32 + 8]).toBeCloseTo(0x82 / 255); // teal
   });
 
+  it('writes walls and a species that avoids its own trail', () => {
+    const { f, u } = pack({
+      ...DEFAULT_SETTINGS,
+      wrap: false,
+      foodStrength: 12.5,
+      species: [DEFAULT_SPECIES, { ...DEFAULT_SPECIES, repel: true }],
+    });
+    expect(u[10]).toBe(0);
+    expect(f[11]).toBe(12.5);
+    expect([f[20 + 7], f[32 + 7]]).toEqual([1, -1]);
+  });
+
   it('crops the grid to cover a canvas of another shape', () => {
     expect(Array.from(pack(DEFAULT_SETTINGS, 4).f.slice(2, 4))).toEqual([1, 0.5]);
     expect(Array.from(pack(DEFAULT_SETTINGS, 1).f.slice(2, 4))).toEqual([0.5, 1]);
     expect(Array.from(pack(DEFAULT_SETTINGS, NaN).f.slice(2, 4))).toEqual([0.5, 1]);
+  });
+});
+
+describe('canvasToGrid', () => {
+  const grid = { width: 400, height: 200 };
+
+  it('maps the whole canvas onto the grid when the shapes match', () => {
+    expect(canvasToGrid(0, 0, grid, 2)).toEqual({ x: 0, y: 0 });
+    expect(canvasToGrid(1, 1, grid, 2)).toEqual({ x: 400, y: 200 });
+    expect(canvasToGrid(0.25, 0.5, grid, 2)).toEqual({ x: 100, y: 100 });
+  });
+
+  it('accounts for the cropped axis', () => {
+    // A square canvas shows only the middle half of the grid's width.
+    expect(canvasToGrid(0, 0, grid, 1)).toEqual({ x: 100, y: 0 });
+    expect(canvasToGrid(1, 1, grid, 1)).toEqual({ x: 300, y: 200 });
+    // A canvas twice as wide as the grid shows only the middle half of its height.
+    expect(canvasToGrid(0, 0, grid, 4)).toEqual({ x: 0, y: 50 });
+    expect(canvasToGrid(0.5, 1, grid, 4)).toEqual({ x: 200, y: 150 });
+  });
+});
+
+describe('food map', () => {
+  const grid = { width: 40, height: 30 };
+  const count = (map: Uint8Array) => map.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+
+  it('paints a disc and reports the block it touched', () => {
+    const map = createFoodMap(grid);
+    const centre = { x: 20, y: 15 };
+    const block = paintStroke(map, grid, centre, centre, 3);
+    expect(block).toEqual({ x: 17, y: 12, width: 7, height: 7 });
+    expect(map[15 * grid.width + 20]).toBe(FOOD);
+    expect(map[12 * grid.width + 17]).toBe(0); // the block's corner is outside the disc
+    // Close to the disc's area, pi * 3 * 3 = 28.3 cells.
+    expect(count(map)).toBeGreaterThan(22);
+    expect(count(map)).toBeLessThan(34);
+  });
+
+  it('paints the whole line between two points', () => {
+    const map = createFoodMap(grid);
+    paintStroke(map, grid, { x: 5.5, y: 10.5 }, { x: 30.5, y: 10.5 }, 1);
+    for (let x = 5; x <= 30; x++) {
+      expect(map[10 * grid.width + x]).toBe(FOOD);
+    }
+    expect(map[13 * grid.width + 18]).toBe(0);
+  });
+
+  it('erases only what the stroke covers', () => {
+    const map = createFoodMap(grid);
+    paintStroke(map, grid, { x: 10, y: 10 }, { x: 30, y: 10 }, 2);
+    const before = count(map);
+    paintStroke(map, grid, { x: 10, y: 10 }, { x: 10, y: 10 }, 3, true);
+    expect(map[10 * grid.width + 10]).toBe(0);
+    expect(map[10 * grid.width + 28]).toBe(FOOD);
+    expect(count(map)).toBeLessThan(before);
+  });
+
+  it('clips at the edges and ignores strokes outside the grid', () => {
+    const map = createFoodMap(grid);
+    expect(paintStroke(map, grid, { x: 0, y: 0 }, { x: 0, y: 0 }, 2)).toEqual({
+      x: 0,
+      y: 0,
+      width: 3,
+      height: 3,
+    });
+    expect(map[0]).toBe(FOOD);
+    expect(paintStroke(map, grid, { x: -50, y: -50 }, { x: -40, y: -40 }, 2)).toBeNull();
+    expect(paintStroke(map, grid, { x: 100, y: 15 }, { x: 100, y: 15 }, 2)).toBeNull();
+  });
+
+  it('keeps sources in place when the grid changes size', () => {
+    const map = createFoodMap(grid);
+    paintStroke(map, grid, { x: 10, y: 15 }, { x: 10, y: 15 }, 2);
+    const doubled = { width: 80, height: 60 };
+    const resized = resizeFoodMap(map, grid, doubled);
+    expect(resized.length).toBe(80 * 60);
+    expect(resized[30 * doubled.width + 20]).toBe(FOOD);
+    expect(resized[30 * doubled.width + 60]).toBe(0);
+    expect(count(resized)).toBe(count(map) * 4);
   });
 });

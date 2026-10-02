@@ -1,4 +1,5 @@
 import { parseHexColor, Rgb } from './colors';
+import { Point } from './food';
 import { GridSize, MAX_SPECIES, SimSettings } from './settings';
 
 /** Colours of the rendered trail map that don't belong to a species, as 0..1 sRGB components. */
@@ -32,17 +33,40 @@ const AGENT_COUNT = 6;
 const SEED = 7;
 const COLLISIONS = 8;
 const SPECIES_COUNT = 9;
+const WRAP = 10;
+const FOOD_STRENGTH = 11;
 const COLOR_BACKGROUND = 12;
 const COLOR_PEAK = 16;
 const SPECIES = 20;
 /** Size of one `Species` struct. */
 const SPECIES_STRIDE = 12;
+const SPECIES_OWN_TRAIL = 7;
 const SPECIES_COLOR = 8;
 
 export const PARAMS_SIZE = (SPECIES + MAX_SPECIES * SPECIES_STRIDE) * 4;
 
 const DEG_TO_RAD = Math.PI / 180;
 const FALLBACK_COLOR: Rgb = [1, 1, 1];
+
+/**
+ * How much of the grid the canvas shows along each axis (0..1). The grid
+ * keeps its aspect ratio and covers the canvas, so one axis is cropped
+ * unless the shapes match.
+ */
+export function viewScale(grid: GridSize, canvasAspect: number): [number, number] {
+  const aspect = canvasAspect > 0 ? canvasAspect : 1;
+  const gridAspect = grid.width / grid.height;
+  return aspect > gridAspect ? [1, gridAspect / aspect] : [aspect / gridAspect, 1];
+}
+
+/** The grid position shown at a point of the canvas, given as 0..1 from its top left. */
+export function canvasToGrid(u: number, v: number, grid: GridSize, canvasAspect: number): Point {
+  const [scaleX, scaleY] = viewScale(grid, canvasAspect);
+  return {
+    x: ((u - 0.5) * scaleX + 0.5) * grid.width,
+    y: ((v - 0.5) * scaleY + 0.5) * grid.height,
+  };
+}
 
 /** Fills `data` (`PARAMS_SIZE` bytes) with the uniform values for the shaders. */
 export function packParams(data: ArrayBuffer, input: ParamsInput): void {
@@ -51,20 +75,17 @@ export function packParams(data: ArrayBuffer, input: ParamsInput): void {
   const u = new Uint32Array(data);
   const species = settings.species.slice(0, MAX_SPECIES);
 
-  // The grid keeps its aspect ratio and covers the canvas.
-  const canvasAspect = input.canvasAspect > 0 ? input.canvasAspect : 1;
-  const gridAspect = grid.width / grid.height;
-
   f[SIZE] = grid.width;
   f[SIZE + 1] = grid.height;
-  f[VIEW_SCALE] = canvasAspect > gridAspect ? 1 : canvasAspect / gridAspect;
-  f[VIEW_SCALE + 1] = canvasAspect > gridAspect ? gridAspect / canvasAspect : 1;
+  f.set(viewScale(grid, input.canvasAspect), VIEW_SCALE);
   f[DECAY] = settings.decay;
   f[AVOIDANCE] = settings.avoidance;
   u[AGENT_COUNT] = input.agentCount;
   u[SEED] = input.seed;
   u[COLLISIONS] = settings.collisions ? 1 : 0;
   u[SPECIES_COUNT] = Math.max(1, species.length);
+  u[WRAP] = settings.wrap ? 1 : 0;
+  f[FOOD_STRENGTH] = settings.foodStrength;
   f.set(colors.background, COLOR_BACKGROUND);
   f.set(colors.peak, COLOR_PEAK);
 
@@ -78,6 +99,7 @@ export function packParams(data: ArrayBuffer, input: ParamsInput): void {
     f[o + 5] = s.randomTurn;
     // Display gain, relative to the deposit so changing that doesn't change the exposure.
     f[o + 6] = settings.brightness / Math.max(s.deposit, 1e-6);
+    f[o + SPECIES_OWN_TRAIL] = s.repel ? -1 : 1;
     f.set(parseHexColor(s.color, FALLBACK_COLOR), o + SPECIES_COLOR);
   });
 }

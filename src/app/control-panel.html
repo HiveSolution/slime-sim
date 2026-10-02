@@ -106,6 +106,23 @@
         Remove species {{ selectedIndex() + 1 }}
       </button>
     </div>
+    <div>
+      <div id="own-trail-label" class="mb-2 text-sm font-medium">Own trail</div>
+      <div role="group" aria-labelledby="own-trail-label" class="grid grid-cols-2 gap-2">
+        @for (option of repelOptions; track option.value) {
+          <button
+            hlmBtn
+            type="button"
+            size="sm"
+            [variant]="species().repel === option.value ? 'secondary' : 'outline'"
+            [attr.aria-pressed]="species().repel === option.value"
+            (click)="setSpecies('repel', option.value)"
+          >
+            {{ option.label }}
+          </button>
+        }
+      </div>
+    </div>
     <slime-setting-slider
       label="Sensor angle"
       unit="°"
@@ -159,8 +176,25 @@
     />
   </section>
 
-  <section aria-labelledby="trail-heading" class="flex flex-col gap-4">
-    <h2 id="trail-heading" class="text-lg font-semibold">Trail</h2>
+  <section aria-labelledby="environment-heading" class="flex flex-col gap-4">
+    <h2 id="environment-heading" class="text-lg font-semibold">Environment</h2>
+    <div>
+      <div id="edges-label" class="mb-2 text-sm font-medium">Edges</div>
+      <div role="group" aria-labelledby="edges-label" class="grid grid-cols-2 gap-2">
+        @for (option of wrapOptions; track option.value) {
+          <button
+            hlmBtn
+            type="button"
+            size="sm"
+            [variant]="settings().wrap === option.value ? 'secondary' : 'outline'"
+            [attr.aria-pressed]="settings().wrap === option.value"
+            (click)="set('wrap', option.value)"
+          >
+            {{ option.label }}
+          </button>
+        }
+      </div>
+    </div>
     <slime-setting-slider
       label="Decay"
       [value]="settings().decay"
@@ -189,6 +223,55 @@
       [step]="0.05"
       (valueChange)="set('brightness', $event)"
     />
+  </section>
+
+  <section aria-labelledby="food-heading" class="flex flex-col gap-4">
+    <div>
+      <h2 id="food-heading" class="text-lg font-semibold">Food</h2>
+      <p class="text-muted-foreground text-xs">
+        Drag on the picture to place food. Every species is drawn to it, and a network forms between
+        the sources. It shows best with a small population, as in the Foraging preset.
+      </p>
+    </div>
+    <div>
+      <div id="brush-label" class="mb-2 text-sm font-medium">Brush</div>
+      <div role="group" aria-labelledby="brush-label" class="grid grid-cols-2 gap-2">
+        @for (option of brushModes; track option.value) {
+          <button
+            hlmBtn
+            type="button"
+            size="sm"
+            [variant]="brush().mode === option.value ? 'secondary' : 'outline'"
+            [attr.aria-pressed]="brush().mode === option.value"
+            (click)="setBrush('mode', option.value)"
+          >
+            <ng-icon [name]="option.icon" />
+            {{ option.label }}
+          </button>
+        }
+      </div>
+    </div>
+    <slime-setting-slider
+      label="Brush size"
+      unit=" px"
+      [value]="brush().size"
+      [min]="1"
+      [max]="40"
+      (valueChange)="setBrush('size', $event)"
+    />
+    <slime-setting-slider
+      label="Food strength"
+      hint="What each cell of a food source gives off per step. A deposit is 5 by default."
+      [value]="settings().foodStrength"
+      [min]="0"
+      [max]="50"
+      [step]="0.5"
+      (valueChange)="set('foodStrength', $event)"
+    />
+    <button hlmBtn type="button" variant="outline" (click)="clearFood.emit()">
+      <ng-icon name="lucideTrash2" />
+      Clear all food
+    </button>
   </section>
 
   <section aria-labelledby="setup-heading" class="flex flex-col gap-4">
