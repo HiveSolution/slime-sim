@@ -59,6 +59,12 @@ A fourth pass colours the trail map onto the canvas.
 - "Agents per cell: Unlimited" turns the one-agent-per-cell rule off. That is
   not in the paper; agents then pile up and the network collapses into a few
   thick strands.
+- **Species** are not in the paper. There can be up to four, each with its own
+  settings, colour and trail (one channel of the trail map each). The agents
+  are dealt out equally between them. An agent is attracted to its own
+  species' trail and repelled by the others: what a sensor reads is its own
+  trail minus `avoidance` times the sum of the other trails. All species
+  share the grid, so with one agent per cell they also block each other.
 - The trail map uses 16-bit floats.
 
 ## Controls
@@ -79,7 +85,12 @@ A fourth pass colours the trail map onto the canvas.
 | Steps per frame    |            | Simulation speed                                           |
 | Brightness         |            | Display only                                               |
 
-The presets reproduce figures from the paper.
+Sensor angle to Deposit are set per species; pick the species with the
+numbered buttons. With more than one species there is also **Avoid other
+species**, the `avoidance` factor described above.
+
+The presets reproduce figures from the paper. They apply to every species
+and keep the species' colours.
 
 ## Structure
 

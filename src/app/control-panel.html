@@ -35,7 +35,7 @@
           [variant]="isActive(preset) ? 'secondary' : 'outline'"
           [attr.aria-pressed]="isActive(preset)"
           [title]="'Jones (2010), ' + preset.source"
-          (click)="applyPreset(preset)"
+          (click)="usePreset(preset)"
         >
           {{ preset.name }}
         </button>
@@ -43,63 +43,124 @@
     </div>
   </section>
 
-  <section aria-labelledby="agents-heading" class="flex flex-col gap-4">
-    <h2 id="agents-heading" class="text-lg font-semibold">Agents</h2>
+  <section aria-labelledby="species-heading" class="flex flex-col gap-4">
+    <div>
+      <h2 id="species-heading" class="text-lg font-semibold">Species</h2>
+      <p class="text-muted-foreground text-xs">
+        Each species follows its own trail. The agents are shared equally between them.
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <div role="group" aria-labelledby="species-heading" class="flex flex-1 gap-2">
+        @for (item of settings().species; track $index) {
+          <button
+            hlmBtn
+            type="button"
+            size="sm"
+            class="flex-1 tabular-nums"
+            [variant]="selectedIndex() === $index ? 'secondary' : 'outline'"
+            [attr.aria-pressed]="selectedIndex() === $index"
+            [attr.aria-label]="'Species ' + ($index + 1)"
+            (click)="selected.set($index)"
+          >
+            <span
+              class="border-foreground/40 size-3 rounded-full border"
+              [style.background-color]="item.color"
+            ></span>
+            {{ $index + 1 }}
+          </button>
+        }
+      </div>
+      <button
+        hlmBtn
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        aria-label="Add species"
+        [disabled]="settings().species.length >= maxSpecies"
+        (click)="addSpecies()"
+      >
+        <ng-icon name="lucidePlus" />
+      </button>
+    </div>
+
+    <div class="flex items-center justify-between gap-2">
+      <label class="flex items-center gap-2 text-sm font-medium">
+        Colour
+        <input
+          type="color"
+          class="border-input h-8 w-12 cursor-pointer rounded-md border bg-transparent p-1"
+          [value]="species().color"
+          (input)="setColor($event)"
+        />
+      </label>
+      <button
+        hlmBtn
+        type="button"
+        variant="destructive"
+        size="sm"
+        [disabled]="settings().species.length <= 1"
+        (click)="removeSpecies()"
+      >
+        <ng-icon name="lucideTrash2" />
+        Remove species {{ selectedIndex() + 1 }}
+      </button>
+    </div>
     <slime-setting-slider
       label="Sensor angle"
       unit="°"
-      [value]="settings().sensorAngle"
+      [value]="species().sensorAngle"
       [min]="0"
       [max]="180"
       [step]="0.5"
-      (valueChange)="set('sensorAngle', $event)"
+      (valueChange)="setSpecies('sensorAngle', $event)"
     />
     <slime-setting-slider
       label="Rotation angle"
       unit="°"
-      [value]="settings().rotationAngle"
+      [value]="species().rotationAngle"
       [min]="0"
       [max]="180"
       [step]="0.5"
-      (valueChange)="set('rotationAngle', $event)"
+      (valueChange)="setSpecies('rotationAngle', $event)"
     />
     <slime-setting-slider
       label="Sensor offset"
       unit=" px"
-      [value]="settings().sensorOffset"
+      [value]="species().sensorOffset"
       [min]="1"
       [max]="60"
-      (valueChange)="set('sensorOffset', $event)"
+      (valueChange)="setSpecies('sensorOffset', $event)"
     />
     <slime-setting-slider
       label="Step size"
       unit=" px"
-      [value]="settings().stepSize"
+      [value]="species().stepSize"
       [min]="0.1"
       [max]="5"
       [step]="0.1"
-      (valueChange)="set('stepSize', $event)"
+      (valueChange)="setSpecies('stepSize', $event)"
     />
     <slime-setting-slider
       label="Random turn chance"
-      [value]="settings().randomTurn"
+      [value]="species().randomTurn"
       [min]="0"
       [max]="0.2"
       [step]="0.001"
-      (valueChange)="set('randomTurn', $event)"
+      (valueChange)="setSpecies('randomTurn', $event)"
+    />
+    <slime-setting-slider
+      label="Deposit"
+      [value]="species().deposit"
+      [min]="0"
+      [max]="20"
+      [step]="0.5"
+      (valueChange)="setSpecies('deposit', $event)"
     />
   </section>
 
   <section aria-labelledby="trail-heading" class="flex flex-col gap-4">
     <h2 id="trail-heading" class="text-lg font-semibold">Trail</h2>
-    <slime-setting-slider
-      label="Deposit"
-      [value]="settings().deposit"
-      [min]="0"
-      [max]="20"
-      [step]="0.5"
-      (valueChange)="set('deposit', $event)"
-    />
     <slime-setting-slider
       label="Decay"
       [value]="settings().decay"
@@ -108,6 +169,17 @@
       [step]="0.005"
       (valueChange)="set('decay', $event)"
     />
+    @if (settings().species.length > 1) {
+      <slime-setting-slider
+        label="Avoid other species"
+        hint="How strongly other species' trails repel, compared with the pull of an agent's own."
+        [value]="settings().avoidance"
+        [min]="0"
+        [max]="3"
+        [step]="0.05"
+        (valueChange)="set('avoidance', $event)"
+      />
+    }
     <slime-setting-slider
       label="Brightness"
       hint="Display only."

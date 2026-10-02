@@ -127,13 +127,12 @@ export class App {
   }
 }
 
-/** The trail colours come from the design tokens in styles.css. */
+/** Background and peak colour come from the design tokens in styles.css; species bring their own. */
 function readColors(): SimColors {
   const style = getComputedStyle(document.documentElement);
   const token = (name: string) => style.getPropertyValue(name);
   return {
     background: parseHexColor(token('--background'), [0.07, 0.05, 0.04]),
-    trail: parseHexColor(token('--primary'), [0.82, 0.52, 0.34]),
     peak: parseHexColor(token('--foreground'), [1, 0.98, 0.96]),
   };
 }

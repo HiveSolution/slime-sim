@@ -1,6 +1,21 @@
 import { AGENT_STRIDE, createAgents } from './agents';
 import { parseHexColor } from './colors';
-import { agentCount, DEFAULT_SETTINGS, gridSize, needsReset } from './settings';
+import { packParams, PARAMS_SIZE } from './params';
+import {
+  addSpecies,
+  agentCount,
+  applyPreset,
+  DEFAULT_SETTINGS,
+  DEFAULT_SPECIES,
+  gridSize,
+  matchesPreset,
+  MAX_SPECIES,
+  needsReset,
+  PRESETS,
+  removeSpecies,
+  SimSettings,
+  SPECIES_COLORS,
+} from './settings';
 
 /** Deterministic stand-in for Math.random. */
 function sequence(): () => number {
@@ -31,7 +46,8 @@ describe('agentCount', () => {
 
 describe('needsReset', () => {
   it('is true only for settings that size the run', () => {
-    expect(needsReset(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, sensorAngle: 45 })).toBe(false);
+    expect(needsReset(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, decay: 0.2 })).toBe(false);
+    expect(needsReset(DEFAULT_SETTINGS, addSpecies(DEFAULT_SETTINGS, 0))).toBe(false);
     expect(needsReset(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, population: 30 })).toBe(true);
     expect(needsReset(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, spawnMode: 'disc' })).toBe(true);
   });
@@ -95,5 +111,116 @@ describe('parseHexColor', () => {
   it('falls back for anything else', () => {
     expect(parseHexColor('', [0.1, 0.2, 0.3])).toEqual([0.1, 0.2, 0.3]);
     expect(parseHexColor('rgb(1 2 3)', [0.1, 0.2, 0.3])).toEqual([0.1, 0.2, 0.3]);
+  });
+});
+
+describe('species', () => {
+  it('adds a copy of the chosen species in the next free colour', () => {
+    const tuned = { ...DEFAULT_SPECIES, sensorOffset: 20 };
+    const two = addSpecies({ ...DEFAULT_SETTINGS, species: [tuned] }, 0);
+    expect(two.species).toEqual([tuned, { ...tuned, color: SPECIES_COLORS[1] }]);
+
+    const recoloured: SimSettings = {
+      ...two,
+      species: [two.species[0], { ...two.species[1], color: SPECIES_COLORS[0].toUpperCase() }],
+    };
+    expect(addSpecies(recoloured, 1).species[2].color).toBe(SPECIES_COLORS[1]);
+  });
+
+  it('stops at the maximum and never removes the last one', () => {
+    let settings = DEFAULT_SETTINGS;
+    for (let i = 0; i < MAX_SPECIES + 2; i++) {
+      settings = addSpecies(settings, 0);
+    }
+    expect(settings.species.length).toBe(MAX_SPECIES);
+    expect(new Set(settings.species.map((species) => species.color)).size).toBe(MAX_SPECIES);
+
+    expect(removeSpecies(settings, 1).species).toEqual([
+      settings.species[0],
+      settings.species[2],
+      settings.species[3],
+    ]);
+    expect(removeSpecies(DEFAULT_SETTINGS, 0)).toBe(DEFAULT_SETTINGS);
+  });
+});
+
+describe('presets', () => {
+  it('apply to every species and keep their colours', () => {
+    const two = addSpecies(DEFAULT_SETTINGS, 0);
+    const coarse = PRESETS.find((preset) => preset.id === 'coarse')!;
+    const applied = applyPreset(two, coarse);
+    expect(applied.species.map((species) => species.sensorOffset)).toEqual([25, 25]);
+    expect(applied.species.map((species) => species.color)).toEqual(
+      two.species.map((species) => species.color),
+    );
+    expect(matchesPreset(applied, coarse)).toBe(true);
+  });
+
+  it('match only when every species matches', () => {
+    const dynamic = PRESETS.find((preset) => preset.id === 'dynamic')!;
+    expect(matchesPreset(DEFAULT_SETTINGS, dynamic)).toBe(true);
+    const two = addSpecies(DEFAULT_SETTINGS, 0);
+    const changed = {
+      ...two,
+      species: [two.species[0], { ...two.species[1], sensorAngle: 90 }],
+    };
+    expect(matchesPreset(changed, dynamic)).toBe(false);
+    expect(matchesPreset({ ...DEFAULT_SETTINGS, population: 40 }, dynamic)).toBe(false);
+  });
+});
+
+describe('packParams', () => {
+  const pack = (settings: SimSettings, canvasAspect = 2) => {
+    const data = new ArrayBuffer(PARAMS_SIZE);
+    packParams(data, {
+      settings,
+      colors: { background: [0.1, 0.2, 0.3], peak: [0.7, 0.8, 0.9] },
+      grid: { width: 400, height: 200 },
+      canvasAspect,
+      agentCount: 1234,
+      seed: 77,
+    });
+    return { f: new Float32Array(data), u: new Uint32Array(data) };
+  };
+
+  it('is as large as the WGSL struct: 80 bytes plus four 48-byte species', () => {
+    expect(PARAMS_SIZE).toBe(80 + 4 * 48);
+  });
+
+  it('writes the globals at their WGSL offsets', () => {
+    const { f, u } = pack({ ...DEFAULT_SETTINGS, decay: 0.25, avoidance: 1.5, collisions: true });
+    expect([f[0], f[1]]).toEqual([400, 200]);
+    expect([f[2], f[3]]).toEqual([1, 1]);
+    expect(f[4]).toBeCloseTo(0.25);
+    expect(f[5]).toBeCloseTo(1.5);
+    expect([u[6], u[7], u[8], u[9]]).toEqual([1234, 77, 1, 1]);
+    expect(f[12]).toBeCloseTo(0.1); // background at byte 48
+    expect(f[16]).toBeCloseTo(0.7); // peak at byte 64
+  });
+
+  it('writes each species at byte 80 + 48 * index', () => {
+    const settings = addSpecies(
+      { ...DEFAULT_SETTINGS, brightness: 2, species: [{ ...DEFAULT_SPECIES, deposit: 4 }] },
+      0,
+    );
+    const { f, u } = pack(settings);
+    expect(u[9]).toBe(2);
+    for (const base of [20, 32]) {
+      expect(f[base]).toBeCloseTo((22.5 * Math.PI) / 180);
+      expect(f[base + 1]).toBeCloseTo(Math.PI / 4);
+      expect(f[base + 2]).toBe(9);
+      expect(f[base + 3]).toBe(1);
+      expect(f[base + 4]).toBe(4);
+      expect(f[base + 5]).toBe(0);
+      expect(f[base + 6]).toBeCloseTo(0.5); // brightness / deposit
+    }
+    expect(f[20 + 8]).toBeCloseTo(0xd0 / 255); // copper, at the species' byte 32
+    expect(f[32 + 8]).toBeCloseTo(0x82 / 255); // teal
+  });
+
+  it('crops the grid to cover a canvas of another shape', () => {
+    expect(Array.from(pack(DEFAULT_SETTINGS, 4).f.slice(2, 4))).toEqual([1, 0.5]);
+    expect(Array.from(pack(DEFAULT_SETTINGS, 1).f.slice(2, 4))).toEqual([0.5, 1]);
+    expect(Array.from(pack(DEFAULT_SETTINGS, NaN).f.slice(2, 4))).toEqual([0.5, 1]);
   });
 });

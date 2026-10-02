@@ -1,4 +1,5 @@
 import { AGENT_STRIDE, createAgents } from './agents';
+import { packParams, PARAMS_SIZE, SimColors } from './params';
 import { agentCount, GridSize, gridSize, needsReset, SimSettings } from './settings';
 import {
   AGENT_WORKGROUP_SIZE,
@@ -6,17 +7,7 @@ import {
   DEPOSIT_SHADER,
   DIFFUSE_SHADER,
   DISPLAY_SHADER,
-  PARAMS_SIZE,
 } from './shaders';
-
-export type Rgb = readonly [number, number, number];
-
-/** Colours of the rendered trail map, as 0..1 sRGB components. */
-export interface SimColors {
-  background: Rgb;
-  trail: Rgb;
-  peak: Rgb;
-}
 
 /** Thrown by `SlimeSimulation.create` when the browser or GPU can't run it. */
 export class WebGpuUnavailableError extends Error {
@@ -27,7 +18,6 @@ export class WebGpuUnavailableError extends Error {
 }
 
 const TRAIL_FORMAT: GPUTextureFormat = 'rgba16float';
-const DEG_TO_RAD = Math.PI / 180;
 const MAX_WORKGROUPS = 65535;
 
 /** What `reset` builds: everything sized by the grid or the population. */
@@ -58,8 +48,6 @@ export class SlimeSimulation {
   private readonly context: GPUCanvasContext;
   private readonly paramsBuffer: GPUBuffer;
   private readonly paramsData = new ArrayBuffer(PARAMS_SIZE);
-  private readonly paramsFloats = new Float32Array(this.paramsData);
-  private readonly paramsUints = new Uint32Array(this.paramsData);
   private readonly sampler: GPUSampler;
   private readonly agentsPipeline: GPUComputePipeline;
   private readonly diffusePipeline: GPURenderPipeline;
@@ -365,36 +353,15 @@ export class SlimeSimulation {
     this.run.trails[1].destroy();
   }
 
-  /** Layout must match the `Params` struct in shaders.ts. */
   private writeParams(): void {
-    const { settings, colors, run } = this;
-    const f = this.paramsFloats;
-    const u = this.paramsUints;
-
-    // The grid keeps its aspect ratio and covers the canvas.
-    const canvasAspect = this.canvas.width / this.canvas.height || 1;
-    const gridAspect = run.grid.width / run.grid.height;
-
-    f[0] = run.grid.width;
-    f[1] = run.grid.height;
-    f[2] = canvasAspect > gridAspect ? 1 : canvasAspect / gridAspect;
-    f[3] = canvasAspect > gridAspect ? gridAspect / canvasAspect : 1;
-    f[4] = settings.sensorAngle * DEG_TO_RAD;
-    f[5] = settings.rotationAngle * DEG_TO_RAD;
-    f[6] = settings.sensorOffset;
-    f[7] = settings.stepSize;
-    f[8] = settings.deposit;
-    f[9] = settings.decay;
-    f[10] = settings.randomTurn;
-    // Relative to the deposit, so changing it doesn't change the exposure.
-    f[11] = settings.brightness / Math.max(settings.deposit, 1e-6);
-    u[12] = run.agentCount;
-    u[13] = this.stepIndex;
-    u[14] = settings.collisions ? 1 : 0;
-    f.set(colors.background, 16);
-    f.set(colors.trail, 20);
-    f.set(colors.peak, 24);
-
+    packParams(this.paramsData, {
+      settings: this.settings,
+      colors: this.colors,
+      grid: this.run.grid,
+      canvasAspect: this.canvas.width / this.canvas.height,
+      agentCount: this.run.agentCount,
+      seed: this.stepIndex,
+    });
     this.device.queue.writeBuffer(this.paramsBuffer, 0, this.paramsData);
   }
 }

@@ -1,3 +1,5 @@
+import { MAX_SPECIES } from './settings';
+
 /**
  * WGSL for the simulation, written from the algorithm in Jones (2010).
  *
@@ -9,31 +11,43 @@
  * The paper moves agents one at a time in random order, and a move into an
  * occupied cell fails. Here all agents move at once and claim their target
  * cell atomically, so which of two competing agents wins is up to the GPU.
+ *
+ * Species are not in the paper. Each one deposits into its own channel of
+ * the trail map, and an agent senses its own channel minus the others.
  */
 
-/** Uniforms shared by every pass. Keep in sync with `writeParams` in slime-simulation.ts. */
+/** Uniforms shared by every pass. Keep in sync with `packParams` in params.ts. */
 const PARAMS = /* wgsl */ `
-struct Params {
-  size: vec2f,
-  viewScale: vec2f,
+struct Species {
   sensorAngle: f32,
   rotationAngle: f32,
   sensorOffset: f32,
   stepSize: f32,
   deposit: f32,
-  decay: f32,
   randomTurn: f32,
   gain: f32,
+  color: vec4f,
+}
+
+struct Params {
+  size: vec2f,
+  viewScale: vec2f,
+  decay: f32,
+  avoidance: f32,
   agentCount: u32,
   seed: u32,
   collisions: u32,
+  speciesCount: u32,
   colorBackground: vec4f,
-  colorTrail: vec4f,
   colorPeak: vec4f,
+  species: array<Species, ${MAX_SPECIES}>,
+}
+
+// Agents are dealt out to the species in turn, so each has an equal share.
+fn speciesOf(agentIndex: u32) -> u32 {
+  return agentIndex % params.speciesCount;
 }
 `;
-
-export const PARAMS_SIZE = 112;
 
 /** Covers the target with one triangle; `uv` runs 0..1 with v pointing down. */
 const FULLSCREEN_VERTEX = /* wgsl */ `
@@ -76,12 +90,13 @@ fn unitFloat(value: u32) -> f32 {
   return f32(value >> 8u) / 16777216.0;
 }
 
-// Trail level at the sensor in the given direction. The boundary is periodic.
-fn sense(position: vec2f, heading: f32) -> f32 {
+// What the sensor at the given distance and direction reads: the trail
+// channels, weighted. The boundary is periodic.
+fn sense(position: vec2f, heading: f32, distance: f32, weights: vec4f) -> f32 {
   let size = vec2i(params.size);
-  let sensor = position + vec2f(cos(heading), sin(heading)) * params.sensorOffset;
+  let sensor = position + vec2f(cos(heading), sin(heading)) * distance;
   let cell = ((vec2i(floor(sensor)) % size) + size) % size;
-  return textureLoad(trail, cell, 0).r;
+  return dot(textureLoad(trail, cell, 0), weights);
 }
 
 fn cellIndex(position: vec2f) -> u32 {
@@ -114,32 +129,38 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var position = agent.xy;
   var heading = agent.z;
 
+  let speciesIndex = speciesOf(index);
+  let species = params.species[speciesIndex];
+  // Attracted to its own trail, repelled by the others.
+  var weights = vec4f(-params.avoidance);
+  weights[speciesIndex] = 1.0;
+
   var random = pcg(index ^ pcg(params.seed));
 
-  let front = sense(position, heading);
-  let left = sense(position, heading + params.sensorAngle);
-  let right = sense(position, heading - params.sensorAngle);
+  let front = sense(position, heading, species.sensorOffset, weights);
+  let left = sense(position, heading + species.sensorAngle, species.sensorOffset, weights);
+  let right = sense(position, heading - species.sensorAngle, species.sensorOffset, weights);
 
   if (front > left && front > right) {
     // Strongest ahead: keep the heading.
   } else if (front < left && front < right) {
     // Stronger on both sides: rotate left or right at random.
     random = pcg(random);
-    heading += select(-params.rotationAngle, params.rotationAngle, unitFloat(random) < 0.5);
+    heading += select(-species.rotationAngle, species.rotationAngle, unitFloat(random) < 0.5);
   } else if (left < right) {
-    heading -= params.rotationAngle;
+    heading -= species.rotationAngle;
   } else if (right < left) {
-    heading += params.rotationAngle;
+    heading += species.rotationAngle;
   }
 
   random = pcg(random);
-  if (unitFloat(random) < params.randomTurn) {
+  if (unitFloat(random) < species.randomTurn) {
     random = pcg(random);
     heading = unitFloat(random) * TAU;
   }
   heading -= floor(heading / TAU) * TAU;
 
-  var destination = position + vec2f(cos(heading), sin(heading)) * params.stepSize;
+  var destination = position + vec2f(cos(heading), sin(heading)) * species.stepSize;
   destination -= floor(destination / params.size) * params.size;
   // A float just below the edge can round up to it.
   destination = min(destination, params.size - 0.01);
@@ -190,28 +211,39 @@ fn main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 }
 `;
 
-/** Draws every agent that moved as one additive point on its cell of the trail map. */
+/** Draws every agent that moved as one additive point on its cell, in its species' channel. */
 export const DEPOSIT_SHADER = /* wgsl */ `
 ${PARAMS}
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> agents: array<vec4f>;
 
+struct DepositOut {
+  @builtin(position) position: vec4f,
+  @location(0) @interpolate(flat) amount: vec4f,
+}
+
 @vertex
-fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+fn vertex(@builtin(vertex_index) index: u32) -> DepositOut {
   let agent = agents[index];
+  let speciesIndex = speciesOf(index);
+  var out: DepositOut;
+  out.amount = vec4f(0.0);
+  out.amount[speciesIndex] = params.species[speciesIndex].deposit;
   if (agent.w < 0.5) {
     // Outside the clip volume, so nothing is drawn.
-    return vec4f(2.0, 2.0, 0.0, 1.0);
+    out.position = vec4f(2.0, 2.0, 0.0, 1.0);
+    return out;
   }
   let cell = floor(agent.xy) + 0.5;
   let clip = cell / params.size * 2.0 - 1.0;
-  return vec4f(clip.x, -clip.y, 0.0, 1.0);
+  out.position = vec4f(clip.x, -clip.y, 0.0, 1.0);
+  return out;
 }
 
 @fragment
-fn fragment() -> @location(0) vec4f {
-  return vec4f(params.deposit, 0.0, 0.0, 0.0);
+fn fragment(in: DepositOut) -> @location(0) vec4f {
+  return in.amount;
 }
 `;
 
@@ -228,10 +260,17 @@ ${FULLSCREEN_VERTEX}
 fn main(in: FullscreenOut) -> @location(0) vec4f {
   // The grid keeps its aspect ratio and covers the canvas.
   let uv = (in.uv - 0.5) * params.viewScale + 0.5;
-  let level = textureSampleLevel(trail, trailSampler, uv, 0.0).r;
-  let t = 1.0 - exp(-level * params.gain);
-  let low = mix(params.colorBackground.rgb, params.colorTrail.rgb, smoothstep(0.0, 0.6, t));
-  let color = mix(low, params.colorPeak.rgb, smoothstep(0.6, 1.0, t));
-  return vec4f(color, 1.0);
+  let levels = textureSampleLevel(trail, trailSampler, uv, 0.0);
+  let background = params.colorBackground.rgb;
+
+  // Each species adds its own ramp: background, its colour, then the peak colour.
+  var color = background;
+  for (var i = 0u; i < params.speciesCount; i++) {
+    let species = params.species[i];
+    let t = 1.0 - exp(-levels[i] * species.gain);
+    let low = mix(background, species.color.rgb, smoothstep(0.0, 0.6, t));
+    color += mix(low, params.colorPeak.rgb, smoothstep(0.6, 1.0, t)) - background;
+  }
+  return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), 1.0);
 }
 `;

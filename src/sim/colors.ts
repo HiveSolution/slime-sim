@@ -1,4 +1,5 @@
-import { Rgb } from './slime-simulation';
+/** A colour as 0..1 sRGB components. */
+export type Rgb = readonly [number, number, number];
 
 /** Parses `#rgb` or `#rrggbb` into 0..1 components; returns `fallback` for anything else. */
 export function parseHexColor(value: string, fallback: Rgb): Rgb {

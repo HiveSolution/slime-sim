@@ -38,9 +38,12 @@ Follow `G:\konstruct9\cortex\05-core\` (Stack, Colors, Typography, Icons).
 
 ## Gotchas
 
-- The `Params` struct in `src/sim/shaders.ts` and `writeParams` in
-  `src/sim/slime-simulation.ts` must have the same layout. Offsets are in
-  4-byte units; the `vec4f` colours start at byte 64.
+- The `Params` and `Species` structs in `src/sim/shaders.ts` and
+  `packParams` in `src/sim/params.ts` must have the same layout. WGSL aligns
+  `vec4f` to 16 bytes, which leaves gaps. The `packParams` tests pin the
+  offsets; update them together with the structs.
+- The shaders are TypeScript template strings, so a backtick in a WGSL
+  comment ends the string.
 - WGSL reserves many ordinary words (`from`, `target`, ...). A shader that
   uses one fails at startup with the compiler's message shown on the page.
 - A setting that changes buffer or texture sizes, or the start state, must be
