@@ -35,9 +35,10 @@ const COLLISIONS = 8;
 const SPECIES_COUNT = 9;
 const WRAP = 10;
 const FOOD_STRENGTH = 11;
-const COLOR_BACKGROUND = 12;
-const COLOR_PEAK = 16;
-const SPECIES = 20;
+const FOOD_CONSUMPTION = 12;
+const COLOR_BACKGROUND = 16;
+const COLOR_PEAK = 20;
+const SPECIES = 24;
 /** Size of one `Species` struct. */
 const SPECIES_STRIDE = 12;
 const SPECIES_OWN_TRAIL = 7;
@@ -86,6 +87,7 @@ export function packParams(data: ArrayBuffer, input: ParamsInput): void {
   u[SPECIES_COUNT] = Math.max(1, species.length);
   u[WRAP] = settings.wrap ? 1 : 0;
   f[FOOD_STRENGTH] = settings.foodStrength;
+  f[FOOD_CONSUMPTION] = settings.foodConsumption / 100;
   f.set(colors.background, COLOR_BACKGROUND);
   f.set(colors.peak, COLOR_PEAK);
 

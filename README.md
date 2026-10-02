@@ -59,11 +59,11 @@ The paper's other experiments are here too:
 
 On the GPU a step is three passes:
 
-| Pass    | Kind    | What it does                                                    |
-| ------- | ------- | --------------------------------------------------------------- |
-| Agents  | Compute | Steps 1 and 2 for every agent in parallel                       |
-| Diffuse | Render  | Step 4, from one trail texture into the other; same for food    |
-| Deposit | Render  | Step 3: draws agents as additive points onto the diffused trail |
+| Pass    | Kind    | What it does                                                                |
+| ------- | ------- | --------------------------------------------------------------------------- |
+| Agents  | Compute | Steps 1 and 2 for every agent in parallel                                   |
+| Diffuse | Render  | Step 4, from one trail texture into the other; same for food                |
+| Deposit | Render  | Step 3: draws agents as points that add to the trail and subtract from food |
 
 A fourth pass colours the trail map onto the canvas.
 
@@ -84,6 +84,11 @@ A fourth pass colours the trail map onto the canvas.
 - **Food** has a map of its own instead of being added to the trail map as
   in the paper, so that it attracts every species. It diffuses and decays
   like the trail. With one species the result is the same.
+- **Eating food** is not in the paper, where food lasts forever. Here a food
+  cell holds an amount from 0 to 1 and gives off attractant in proportion to
+  it. Every agent that moves onto the cell takes a fixed bite, so a source
+  fades and disappears, and the network then lets go of it. Set **Food
+  consumption** to 0 for the paper's behaviour.
 - **Walls**: the paper doesn't say what its non-periodic boundary does to
   sensing and diffusion. Here a sensor beyond a wall reads nothing, and
   trail that diffuses past a wall is lost.
@@ -91,28 +96,29 @@ A fourth pass colours the trail map onto the canvas.
 
 ## Controls
 
-| Control            | Paper name | Meaning                                                    |
-| ------------------ | ---------- | ---------------------------------------------------------- |
-| Sensor angle       | SA         | Angle of the left and right sensors from the front one     |
-| Rotation angle     | RA         | How far an agent turns per step                            |
-| Sensor offset      | SO         | Distance from the agent to its sensors; sets pattern scale |
-| Step size          | SS         | Distance moved per step                                    |
-| Random turn chance | pCD        | Probability per step of a random new heading               |
-| Own trail          |            | Follow it, or avoid it (the paper's chemorepulsion)        |
-| Edges              | Boundary   | Wrap around (paper default) or walls                       |
-| Food strength      | wProj      | What each cell of a food source gives off per step         |
-| Deposit            | depT       | Trail added per successful move                            |
-| Decay              | decayT     | Share of the trail lost per step                           |
-| Population         | %p         | Agents as a percentage of the grid's cells                 |
-| Agents per cell    |            | One (paper) or unlimited                                   |
-| Grid height        |            | Grid resolution; the width follows the window's shape      |
-| Start shape        |            | Random (paper), a disc, or a ring facing inwards           |
-| Steps per frame    |            | Simulation speed                                           |
-| Brightness         |            | Display only                                               |
+| Control            | Paper name | Meaning                                                      |
+| ------------------ | ---------- | ------------------------------------------------------------ |
+| Sensor angle       | SA         | Angle of the left and right sensors from the front one       |
+| Rotation angle     | RA         | How far an agent turns per step                              |
+| Sensor offset      | SO         | Distance from the agent to its sensors; sets pattern scale   |
+| Step size          | SS         | Distance moved per step                                      |
+| Random turn chance | pCD        | Probability per step of a random new heading                 |
+| Own trail          |            | Follow it, or avoid it (the paper's chemorepulsion)          |
+| Edges              | Boundary   | Wrap around (paper default) or walls                         |
+| Food strength      | wProj      | What a full cell of a food source gives off per step         |
+| Food consumption   |            | Share of a food cell an agent eats per step on it; 0 = never |
+| Deposit            | depT       | Trail added per successful move                              |
+| Decay              | decayT     | Share of the trail lost per step                             |
+| Population         | %p         | Agents as a percentage of the grid's cells                   |
+| Agents per cell    |            | One (paper) or unlimited                                     |
+| Grid height        |            | Grid resolution; the width follows the window's shape        |
+| Start shape        |            | Random (paper), a disc, or a ring facing inwards             |
+| Steps per frame    |            | Simulation speed                                             |
+| Brightness         |            | Display only                                                 |
 
 Drag on the picture to paint food sources; the Food section has the brush
-(paint or erase), its size, and a button to clear all food. Food stays in
-place when the simulation restarts.
+(paint or erase), its size, and buttons to refill or clear all food. Refill
+puts eaten food back as it was painted, and so does a restart.
 
 Sensor angle to Deposit, and Own trail, are set per species; pick the species with the
 numbered buttons. With more than one species there is also **Avoid other

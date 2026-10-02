@@ -117,6 +117,10 @@ export class App {
     this.simulation()?.clearFood();
   }
 
+  protected refillFood(): void {
+    this.simulation()?.refillFood();
+  }
+
   /** Puts a link to the current settings in the address bar and on the clipboard. */
   protected async copyLink(): Promise<void> {
     const hash = `#${encodeSettings(this.settings())}`;

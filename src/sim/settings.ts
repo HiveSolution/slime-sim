@@ -64,6 +64,11 @@ export interface SimSettings {
   /** What every cell of a food source adds to the food map per step. */
   foodStrength: number;
   /**
+   * How much of a food source cell an agent eats when it moves onto it, in
+   * percent of a full cell. 0 keeps food forever, as in the paper.
+   */
+  foodConsumption: number;
+  /**
    * How strongly agents are repelled by other species' trails, relative to
    * the pull of their own. 0 makes the species ignore each other's trails.
    */
@@ -85,6 +90,7 @@ export const LIMITS = {
   stepsPerFrame: { min: 1, max: 20, step: 1 },
   brightness: { min: 0.05, max: 3, step: 0.05 },
   foodStrength: { min: 0, max: 50, step: 0.5 },
+  foodConsumption: { min: 0, max: 10, step: 0.1 },
 } as const satisfies Partial<Record<keyof SimSettings, Range>>;
 
 export const SPECIES_LIMITS = {
@@ -128,6 +134,7 @@ export const DEFAULT_SETTINGS: SimSettings = {
   wrap: true,
   decay: 0.1,
   foodStrength: 5,
+  foodConsumption: 0.2,
   avoidance: 1,
   stepsPerFrame: 1,
   brightness: 0.5,

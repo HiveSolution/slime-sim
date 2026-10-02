@@ -228,8 +228,8 @@
     <div>
       <h2 id="food-heading" class="text-lg font-semibold">Food</h2>
       <p class="text-muted-foreground text-xs">
-        Drag on the picture to place food. Every species is drawn to it, and a network forms between
-        the sources. It shows best with a small population, as in the Foraging preset.
+        Drag on the picture to place food. Every species is drawn to it and eats it, and a network
+        forms between the sources. It shows best with a small population, as in the Foraging preset.
       </p>
     </div>
     <div>
@@ -264,10 +264,27 @@
       [range]="limits.foodStrength"
       (valueChange)="set('foodStrength', $event)"
     />
-    <button hlmBtn type="button" variant="outline" (click)="clearFood.emit()">
-      <ng-icon name="lucideTrash2" />
-      Clear all food
-    </button>
+    <slime-setting-slider
+      label="Food consumption"
+      unit="%"
+      hint="How much of a food cell an agent eats each time it steps on it. At 0 food lasts forever, as in the paper."
+      [value]="settings().foodConsumption"
+      [range]="limits.foodConsumption"
+      (valueChange)="set('foodConsumption', $event)"
+    />
+    <div class="grid grid-cols-2 gap-2">
+      <button hlmBtn type="button" variant="outline" (click)="refillFood.emit()">
+        <ng-icon name="lucideRefreshCw" />
+        Refill
+      </button>
+      <button hlmBtn type="button" variant="outline" (click)="clearFood.emit()">
+        <ng-icon name="lucideTrash2" />
+        Clear all
+      </button>
+    </div>
+    <p class="text-muted-foreground -mt-2 text-xs">
+      Refill puts eaten food back as it was painted. A restart does the same.
+    </p>
   </section>
 
   <section aria-labelledby="setup-heading" class="flex flex-col gap-4">

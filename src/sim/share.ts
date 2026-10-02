@@ -47,6 +47,7 @@ export function encodeSettings(settings: SimSettings): string {
   params.set('n', compact(settings.stepsPerFrame));
   params.set('b', compact(settings.brightness));
   params.set('f', compact(settings.foodStrength));
+  params.set('e', compact(settings.foodConsumption));
   for (const species of settings.species) {
     params.append(
       's',
@@ -114,6 +115,7 @@ export function decodeSettings(text: string, base: SimSettings = DEFAULT_SETTING
     ),
     brightness: readNumber(params.get('b'), LIMITS.brightness, base.brightness),
     foodStrength: readNumber(params.get('f'), LIMITS.foodStrength, base.foodStrength),
+    foodConsumption: readNumber(params.get('e'), LIMITS.foodConsumption, base.foodConsumption),
     species: species.length ? species : base.species,
   };
 }

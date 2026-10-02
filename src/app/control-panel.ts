@@ -17,6 +17,7 @@ import {
   lucidePause,
   lucidePlay,
   lucidePlus,
+  lucideRefreshCw,
   lucideRotateCcw,
   lucideStepForward,
   lucideTrash2,
@@ -63,6 +64,7 @@ export type LinkStatus = 'idle' | 'copied' | 'shown';
       lucidePause,
       lucidePlay,
       lucidePlus,
+      lucideRefreshCw,
       lucideRotateCcw,
       lucideStepForward,
       lucideTrash2,
@@ -83,6 +85,7 @@ export class ControlPanel {
   readonly step = output<void>();
   readonly restart = output<void>();
   readonly clearFood = output<void>();
+  readonly refillFood = output<void>();
   readonly copyLink = output<void>();
   readonly saveImage = output<void>();
 

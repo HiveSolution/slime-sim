@@ -19,6 +19,10 @@ import { MAX_SPECIES } from './settings';
  * trail map; here it has a map of its own that diffuses and decays the same
  * way and that every species is drawn to. With one species the two are the
  * same thing, because diffusion is linear.
+ *
+ * Eating food is not in the paper. A food source cell holds an amount from 0
+ * to 1 and gives off attractant in proportion to it. An agent that moves
+ * onto the cell takes a fixed bite out of it.
  */
 
 /** Uniforms shared by every pass. Keep in sync with `packParams` in params.ts. */
@@ -48,6 +52,8 @@ struct Params {
   // 1 when the edges wrap around, 0 when they are walls.
   wrap: u32,
   foodStrength: f32,
+  // How much of a food cell one agent eats per step on it.
+  foodConsumption: f32,
   colorBackground: vec4f,
   colorPeak: vec4f,
   species: array<Species, ${MAX_SPECIES}>,
@@ -98,6 +104,7 @@ ${PARAMS}
 @group(0) @binding(2) var trail: texture_2d<f32>;
 @group(0) @binding(3) var<storage, read_write> occupancy: array<atomic<u32>>;
 @group(0) @binding(4) var food: texture_2d<f32>;
+@group(0) @binding(5) var foodSources: texture_2d<f32>;
 
 const TAU = 6.283185307179586;
 
@@ -208,15 +215,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
   }
 
+  // What the deposit pass does for this agent: 0 nothing, 1 deposit trail, 2 also eat.
+  var action = 0.0;
   if (moved) {
     position = destination;
+    action = 1.0;
+    if (textureLoad(foodSources, vec2i(position), 0).r > 0.0) {
+      action = 2.0;
+    }
   } else {
     // A blocked agent stays put, deposits nothing and picks a new heading.
     random = pcg(random);
     heading = unitFloat(random) * TAU;
   }
 
-  agents[index] = vec4f(position, heading, f32(moved));
+  agents[index] = vec4f(position, heading, action);
 }
 `;
 
@@ -257,7 +270,8 @@ fn main(@builtin(position) position: vec4f) -> DiffuseOut {
     }
   }
   let keep = (1.0 - params.decay) / 9.0;
-  let source = textureLoad(foodSources, cell, 0).r;
+  // The last bite can take a source slightly below zero.
+  let source = clamp(textureLoad(foodSources, cell, 0).r, 0.0, 1.0);
 
   var out: DiffuseOut;
   out.trail = trailSum * keep;
@@ -266,7 +280,11 @@ fn main(@builtin(position) position: vec4f) -> DiffuseOut {
 }
 `;
 
-/** Draws every agent that moved as one additive point on its cell, in its species' channel. */
+/**
+ * Draws every agent that moved as one point on its cell. The point adds to
+ * the trail map in its species' channel, and takes a bite out of the food
+ * source if the agent is on one.
+ */
 export const DEPOSIT_SHADER = /* wgsl */ `
 ${PARAMS}
 
@@ -276,6 +294,13 @@ ${PARAMS}
 struct DepositOut {
   @builtin(position) position: vec4f,
   @location(0) @interpolate(flat) amount: vec4f,
+  @location(1) @interpolate(flat) eaten: f32,
+}
+
+struct DepositTargets {
+  @location(0) trail: vec4f,
+  // Blended as "what is there minus this".
+  @location(1) eaten: vec4f,
 }
 
 @vertex
@@ -285,6 +310,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DepositOut {
   var out: DepositOut;
   out.amount = vec4f(0.0);
   out.amount[speciesIndex] = params.species[speciesIndex].deposit;
+  out.eaten = select(0.0, params.foodConsumption, agent.w > 1.5);
   if (agent.w < 0.5) {
     // Outside the clip volume, so nothing is drawn.
     out.position = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -297,8 +323,11 @@ fn vertex(@builtin(vertex_index) index: u32) -> DepositOut {
 }
 
 @fragment
-fn fragment(in: DepositOut) -> @location(0) vec4f {
-  return in.amount;
+fn fragment(in: DepositOut) -> DepositTargets {
+  var out: DepositTargets;
+  out.trail = in.amount;
+  out.eaten = vec4f(in.eaten, 0.0, 0.0, 0.0);
+  return out;
 }
 `;
 
@@ -329,8 +358,68 @@ fn main(in: FullscreenOut) -> @location(0) vec4f {
   }
   color = clamp(color, vec3f(0.0), vec3f(1.0));
 
-  let source = textureSampleLevel(foodSources, trailSampler, uv, 0.0).r;
-  color = mix(color, params.colorPeak.rgb, smoothstep(0.3, 0.7, source));
+  // Food fades as it is eaten.
+  let source = clamp(textureSampleLevel(foodSources, trailSampler, uv, 0.0).r, 0.0, 1.0);
+  color = mix(color, params.colorPeak.rgb, smoothstep(0.0, 1.0, source));
   return vec4f(color, 1.0);
+}
+`;
+
+/**
+ * Sets the food sources within the brush's radius of the stroke, in both the
+ * painted food and what remains of it. Keep `Brush` in sync with
+ * `packBrush` in food.ts.
+ */
+export const PAINT_SHADER = /* wgsl */ `
+${FULLSCREEN_VERTEX}
+
+struct Brush {
+  // The stroke runs from pointA to pointB, in grid coordinates.
+  pointA: vec2f,
+  pointB: vec2f,
+  radius: f32,
+  // What a covered cell is set to: 1 to paint, 0 to erase.
+  amount: f32,
+}
+
+@group(0) @binding(0) var<uniform> brush: Brush;
+
+struct PaintOut {
+  @location(0) painted: vec4f,
+  @location(1) remaining: vec4f,
+}
+
+@fragment
+fn main(@builtin(position) position: vec4f) -> PaintOut {
+  // Distance from the cell centre to the nearest point of the stroke.
+  let cell = position.xy - brush.pointA;
+  let stroke = brush.pointB - brush.pointA;
+  let lengthSquared = dot(stroke, stroke);
+  var along = 0.0;
+  if (lengthSquared > 0.0) {
+    along = clamp(dot(cell, stroke) / lengthSquared, 0.0, 1.0);
+  }
+  let away = cell - along * stroke;
+  if (dot(away, away) > brush.radius * brush.radius) {
+    discard;
+  }
+
+  var out: PaintOut;
+  out.painted = vec4f(brush.amount, 0.0, 0.0, 1.0);
+  out.remaining = out.painted;
+  return out;
+}
+`;
+
+/** Stretches the painted food onto a grid of another size. */
+export const RESIZE_SHADER = /* wgsl */ `
+${FULLSCREEN_VERTEX}
+
+@group(0) @binding(0) var painted: texture_2d<f32>;
+@group(0) @binding(1) var paintedSampler: sampler;
+
+@fragment
+fn main(in: FullscreenOut) -> @location(0) vec4f {
+  return textureSampleLevel(painted, paintedSampler, in.uv, 0.0);
 }
 `;

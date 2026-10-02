@@ -1,5 +1,5 @@
 import { AGENT_STRIDE, createAgents } from './agents';
-import { createFoodMap, FoodMap, paintStroke, Rect, resizeFoodMap } from './food';
+import { BRUSH_SIZE, packBrush, strokeBounds } from './food';
 import { canvasToGrid, packParams, PARAMS_SIZE, SimColors } from './params';
 import { agentCount, GridSize, gridSize, needsReset, SimSettings } from './settings';
 import {
@@ -8,6 +8,8 @@ import {
   DEPOSIT_SHADER,
   DIFFUSE_SHADER,
   DISPLAY_SHADER,
+  PAINT_SHADER,
+  RESIZE_SHADER,
 } from './shaders';
 
 /** Thrown by `SlimeSimulation.create` when the browser or GPU can't run it. */
@@ -20,8 +22,21 @@ export class WebGpuUnavailableError extends Error {
 
 const TRAIL_FORMAT: GPUTextureFormat = 'rgba16float';
 const FOOD_FORMAT: GPUTextureFormat = 'r16float';
-const FOOD_SOURCES_FORMAT: GPUTextureFormat = 'r8unorm';
 const MAX_WORKGROUPS = 65535;
+
+/**
+ * The food sources: per cell, how much food there is, from 0 to 1. They
+ * outlive a run, so a restart starts again with the food as it was painted.
+ */
+interface FoodSources {
+  grid: GridSize;
+  /** The food as painted. */
+  painted: GPUTexture;
+  paintedView: GPUTextureView;
+  /** What the agents have left of it. */
+  remaining: GPUTexture;
+  remainingView: GPUTextureView;
+}
 
 /** What `reset` builds: everything sized by the grid or the population. */
 interface Run {
@@ -34,7 +49,6 @@ interface Run {
   /** The food map; swaps together with the trail map. */
   foods: [GPUTexture, GPUTexture];
   foodViews: [GPUTextureView, GPUTextureView];
-  foodSources: GPUTexture;
   /** Indexed by the trail and food textures being read. */
   agentBindGroups: [GPUBindGroup, GPUBindGroup];
   diffuseBindGroups: [GPUBindGroup, GPUBindGroup];
@@ -55,15 +69,19 @@ export class SlimeSimulation {
   private readonly context: GPUCanvasContext;
   private readonly paramsBuffer: GPUBuffer;
   private readonly paramsData = new ArrayBuffer(PARAMS_SIZE);
+  private readonly brushBuffer: GPUBuffer;
+  private readonly brushData = new ArrayBuffer(BRUSH_SIZE);
+  private readonly brushBindGroup: GPUBindGroup;
   private readonly sampler: GPUSampler;
   private readonly agentsPipeline: GPUComputePipeline;
   private readonly diffusePipeline: GPURenderPipeline;
   private readonly depositPipeline: GPURenderPipeline;
   private readonly displayPipeline: GPURenderPipeline;
+  private readonly paintPipeline: GPURenderPipeline;
+  private readonly resizePipeline: GPURenderPipeline;
 
   private run!: Run;
-  /** The painted food sources. Kept across restarts, unlike the rest of a run. */
-  private foodMap: FoodMap | null = null;
+  private foodSources: FoodSources | null = null;
   private stepIndex = 0;
   private destroyed = false;
 
@@ -84,6 +102,11 @@ export class SlimeSimulation {
     this.paramsBuffer = device.createBuffer({
       label: 'params',
       size: PARAMS_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.brushBuffer = device.createBuffer({
+      label: 'brush',
+      size: BRUSH_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.sampler = device.createSampler({
@@ -111,7 +134,13 @@ export class SlimeSimulation {
     });
 
     const depositModule = device.createShaderModule({ label: 'deposit', code: DEPOSIT_SHADER });
-    const additive: GPUBlendComponent = { operation: 'add', srcFactor: 'one', dstFactor: 'one' };
+    const add: GPUBlendComponent = { operation: 'add', srcFactor: 'one', dstFactor: 'one' };
+    // What is there minus what is drawn.
+    const subtract: GPUBlendComponent = {
+      operation: 'reverse-subtract',
+      srcFactor: 'one',
+      dstFactor: 'one',
+    };
     this.depositPipeline = device.createRenderPipeline({
       label: 'deposit',
       layout: 'auto',
@@ -119,9 +148,8 @@ export class SlimeSimulation {
       fragment: {
         module: depositModule,
         targets: [
-          { format: TRAIL_FORMAT, blend: { color: additive, alpha: additive } },
-          // Shares the render pass with the diffuse step, but leaves the food map alone.
-          { format: FOOD_FORMAT, writeMask: 0 },
+          { format: TRAIL_FORMAT, blend: { color: add, alpha: add } },
+          { format: FOOD_FORMAT, blend: { color: subtract, alpha: subtract } },
         ],
       },
       primitive: { topology: 'point-list' },
@@ -133,6 +161,29 @@ export class SlimeSimulation {
       layout: 'auto',
       vertex: { module: displayModule },
       fragment: { module: displayModule, targets: [{ format: canvasFormat }] },
+    });
+
+    const paintModule = device.createShaderModule({ label: 'paint', code: PAINT_SHADER });
+    this.paintPipeline = device.createRenderPipeline({
+      label: 'paint',
+      layout: 'auto',
+      vertex: { module: paintModule },
+      fragment: {
+        module: paintModule,
+        targets: [{ format: FOOD_FORMAT }, { format: FOOD_FORMAT }],
+      },
+    });
+    this.brushBindGroup = device.createBindGroup({
+      layout: this.paintPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.brushBuffer } }],
+    });
+
+    const resizeModule = device.createShaderModule({ label: 'resize', code: RESIZE_SHADER });
+    this.resizePipeline = device.createRenderPipeline({
+      label: 'resize',
+      layout: 'auto',
+      vertex: { module: resizeModule },
+      fragment: { module: resizeModule, targets: [{ format: FOOD_FORMAT }] },
     });
 
     device.lost.then((info) => {
@@ -193,10 +244,12 @@ export class SlimeSimulation {
     this.colors = colors;
   }
 
-  /** Starts a fresh run: new agents and an empty trail map, sized to the canvas. */
+  /**
+   * Starts a fresh run: new agents and an empty trail map, sized to the
+   * canvas. Food that was eaten is put back as it was painted.
+   */
   reset(): void {
     const { device, settings } = this;
-    const previousGrid = this.run?.grid;
     this.destroyRun();
 
     const limits = device.limits;
@@ -246,18 +299,7 @@ export class SlimeSimulation {
     ];
     const foodViews: Run['foodViews'] = [foods[0].createView(), foods[1].createView()];
 
-    if (!this.foodMap || !previousGrid) {
-      this.foodMap = createFoodMap(grid);
-    } else if (previousGrid.width !== grid.width || previousGrid.height !== grid.height) {
-      this.foodMap = resizeFoodMap(this.foodMap, previousGrid, grid);
-    }
-    const foodSources = device.createTexture({
-      label: 'food sources',
-      size: [grid.width, grid.height],
-      format: FOOD_SOURCES_FORMAT,
-      usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
-    });
-    const foodSourcesView = foodSources.createView();
+    const { remainingView } = this.prepareFoodSources(grid);
     const params = { buffer: this.paramsBuffer };
 
     const perSource = (create: (index: 0 | 1) => GPUBindGroup): [GPUBindGroup, GPUBindGroup] => [
@@ -274,7 +316,6 @@ export class SlimeSimulation {
       trailViews,
       foods,
       foodViews,
-      foodSources,
       agentBindGroups: perSource((source) =>
         device.createBindGroup({
           layout: this.agentsPipeline.getBindGroupLayout(0),
@@ -284,6 +325,7 @@ export class SlimeSimulation {
             { binding: 2, resource: trailViews[source] },
             { binding: 3, resource: { buffer: occupancy } },
             { binding: 4, resource: foodViews[source] },
+            { binding: 5, resource: remainingView },
           ],
         }),
       ),
@@ -294,7 +336,7 @@ export class SlimeSimulation {
             { binding: 0, resource: params },
             { binding: 1, resource: trailViews[source] },
             { binding: 2, resource: foodViews[source] },
-            { binding: 3, resource: foodSourcesView },
+            { binding: 3, resource: remainingView },
           ],
         }),
       ),
@@ -305,7 +347,7 @@ export class SlimeSimulation {
             { binding: 0, resource: params },
             { binding: 1, resource: trailViews[source] },
             { binding: 2, resource: this.sampler },
-            { binding: 3, resource: foodSourcesView },
+            { binding: 3, resource: remainingView },
           ],
         }),
       ),
@@ -319,7 +361,6 @@ export class SlimeSimulation {
       current: 0,
     };
     this.stepIndex = 0;
-    this.uploadFoodSources();
   }
 
   /**
@@ -332,42 +373,71 @@ export class SlimeSimulation {
     radius: number,
     erase = false,
   ): void {
+    const { device, foodSources } = this;
     const { grid } = this.run;
     const aspect = this.canvas.width / this.canvas.height;
-    const changed = paintStroke(
-      this.foodMap!,
-      grid,
-      canvasToGrid(from.u, from.v, grid, aspect),
-      canvasToGrid(to.u, to.v, grid, aspect),
-      radius,
-      erase,
-    );
-    if (changed) {
-      this.uploadFoodSources(changed);
+    const start = canvasToGrid(from.u, from.v, grid, aspect);
+    const end = canvasToGrid(to.u, to.v, grid, aspect);
+    const bounds = strokeBounds(grid, start, end, radius);
+    if (!bounds || !foodSources) {
+      return;
     }
+
+    // Each stroke is its own submit, so it sees its own brush values.
+    packBrush(this.brushData, start, end, radius, erase);
+    device.queue.writeBuffer(this.brushBuffer, 0, this.brushData);
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        { view: foodSources.paintedView, loadOp: 'load', storeOp: 'store' },
+        { view: foodSources.remainingView, loadOp: 'load', storeOp: 'store' },
+      ],
+    });
+    pass.setPipeline(this.paintPipeline);
+    pass.setBindGroup(0, this.brushBindGroup);
+    pass.setScissorRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    pass.draw(3);
+    pass.end();
+    device.queue.submit([encoder.finish()]);
   }
 
   /** Takes away every food source. What they left in the food map decays on its own. */
   clearFood(): void {
-    this.foodMap!.fill(0);
-    this.uploadFoodSources();
+    const { device, foodSources } = this;
+    if (!foodSources) {
+      return;
+    }
+    const encoder = device.createCommandEncoder();
+    encoder
+      .beginRenderPass({
+        colorAttachments: [
+          { view: foodSources.paintedView, loadOp: 'clear', storeOp: 'store' },
+          { view: foodSources.remainingView, loadOp: 'clear', storeOp: 'store' },
+        ],
+      })
+      .end();
+    device.queue.submit([encoder.finish()]);
   }
 
-  /** Copies the food sources, or one block of them, to the GPU. */
-  private uploadFoodSources(block?: Rect): void {
-    const { grid, foodSources } = this.run;
-    const { x, y, width, height } = block ?? { x: 0, y: 0, ...grid };
-    this.device.queue.writeTexture(
-      { texture: foodSources, origin: [x, y] },
-      this.foodMap!,
-      { offset: y * grid.width + x, bytesPerRow: grid.width },
-      [width, height],
+  /** Puts back the food the agents have eaten, as it was painted. */
+  refillFood(): void {
+    const { device, foodSources } = this;
+    if (!foodSources) {
+      return;
+    }
+    const encoder = device.createCommandEncoder();
+    encoder.copyTextureToTexture(
+      { texture: foodSources.painted },
+      { texture: foodSources.remaining },
+      [foodSources.grid.width, foodSources.grid.height],
     );
+    device.queue.submit([encoder.finish()]);
   }
 
   /** Advances the simulation by `count` scheduler steps. */
   step(count = 1): void {
     const { device, run } = this;
+    const remainingView = this.foodSources!.remainingView;
     for (let i = 0; i < count; i++) {
       // Each step is its own submit, so it sees its own random seed.
       this.writeParams();
@@ -381,19 +451,28 @@ export class SlimeSimulation {
       agentsPass.dispatchWorkgroups(Math.ceil(run.agentCount / AGENT_WORKGROUP_SIZE));
       agentsPass.end();
 
-      const trailPass = encoder.beginRenderPass({
+      const diffusePass = encoder.beginRenderPass({
         colorAttachments: [
           { view: run.trailViews[target], loadOp: 'clear', storeOp: 'store' },
           { view: run.foodViews[target], loadOp: 'clear', storeOp: 'store' },
         ],
       });
-      trailPass.setPipeline(this.diffusePipeline);
-      trailPass.setBindGroup(0, run.diffuseBindGroups[source]);
-      trailPass.draw(3);
-      trailPass.setPipeline(this.depositPipeline);
-      trailPass.setBindGroup(0, run.depositBindGroup);
-      trailPass.draw(run.agentCount);
-      trailPass.end();
+      diffusePass.setPipeline(this.diffusePipeline);
+      diffusePass.setBindGroup(0, run.diffuseBindGroups[source]);
+      diffusePass.draw(3);
+      diffusePass.end();
+
+      // A pass of its own, because the diffuse pass reads the food sources this one writes.
+      const depositPass = encoder.beginRenderPass({
+        colorAttachments: [
+          { view: run.trailViews[target], loadOp: 'load', storeOp: 'store' },
+          { view: remainingView, loadOp: 'load', storeOp: 'store' },
+        ],
+      });
+      depositPass.setPipeline(this.depositPipeline);
+      depositPass.setBindGroup(0, run.depositBindGroup);
+      depositPass.draw(run.agentCount);
+      depositPass.end();
 
       device.queue.submit([encoder.finish()]);
       run.current = target;
@@ -445,9 +524,70 @@ export class SlimeSimulation {
     }
     this.destroyed = true;
     this.destroyRun();
+    this.foodSources?.painted.destroy();
+    this.foodSources?.remaining.destroy();
     this.paramsBuffer.destroy();
+    this.brushBuffer.destroy();
     this.context.unconfigure();
     this.device.destroy();
+  }
+
+  /**
+   * The food sources for a run on `grid`, with everything eaten put back.
+   * If the grid changed size, the painted food is stretched onto the new
+   * one, so sources keep their place on screen.
+   */
+  private prepareFoodSources(grid: GridSize): FoodSources {
+    const { device } = this;
+    const previous = this.foodSources;
+    if (previous?.grid.width === grid.width && previous.grid.height === grid.height) {
+      this.refillFood();
+      return previous;
+    }
+
+    const create = (label: string, usage: number) =>
+      device.createTexture({
+        label,
+        size: [grid.width, grid.height],
+        format: FOOD_FORMAT,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | usage,
+      });
+    const painted = create('food painted', GPUTextureUsage.COPY_SRC);
+    const remaining = create('food remaining', GPUTextureUsage.COPY_DST);
+    const sources: FoodSources = {
+      grid,
+      painted,
+      paintedView: painted.createView(),
+      remaining,
+      remainingView: remaining.createView(),
+    };
+
+    if (previous) {
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{ view: sources.paintedView, loadOp: 'clear', storeOp: 'store' }],
+      });
+      pass.setPipeline(this.resizePipeline);
+      pass.setBindGroup(
+        0,
+        device.createBindGroup({
+          layout: this.resizePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: previous.paintedView },
+            { binding: 1, resource: this.sampler },
+          ],
+        }),
+      );
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      previous.painted.destroy();
+      previous.remaining.destroy();
+    }
+
+    this.foodSources = sources;
+    this.refillFood();
+    return sources;
   }
 
   private destroyRun(): void {
@@ -460,7 +600,6 @@ export class SlimeSimulation {
     this.run.trails[1].destroy();
     this.run.foods[0].destroy();
     this.run.foods[1].destroy();
-    this.run.foodSources.destroy();
   }
 
   private writeParams(): void {

@@ -1,6 +1,6 @@
 import { AGENT_STRIDE, createAgents } from './agents';
 import { parseHexColor } from './colors';
-import { createFoodMap, FOOD, paintStroke, resizeFoodMap } from './food';
+import { BRUSH_SIZE, packBrush, strokeBounds } from './food';
 import { canvasToGrid, packParams, PARAMS_SIZE } from './params';
 import {
   addSpecies,
@@ -187,8 +187,8 @@ describe('packParams', () => {
     return { f: new Float32Array(data), u: new Uint32Array(data) };
   };
 
-  it('is as large as the WGSL struct: 80 bytes plus four 48-byte species', () => {
-    expect(PARAMS_SIZE).toBe(80 + 4 * 48);
+  it('is as large as the WGSL struct: 96 bytes plus four 48-byte species', () => {
+    expect(PARAMS_SIZE).toBe(96 + 4 * 48);
   });
 
   it('writes the globals at their WGSL offsets', () => {
@@ -199,18 +199,19 @@ describe('packParams', () => {
     expect(f[5]).toBeCloseTo(1.5);
     expect([u[6], u[7], u[8], u[9], u[10]]).toEqual([1234, 77, 1, 1, 1]);
     expect(f[11]).toBe(DEFAULT_SETTINGS.foodStrength);
-    expect(f[12]).toBeCloseTo(0.1); // background at byte 48
-    expect(f[16]).toBeCloseTo(0.7); // peak at byte 64
+    expect(f[12]).toBeCloseTo(DEFAULT_SETTINGS.foodConsumption / 100); // percent to share
+    expect(f[16]).toBeCloseTo(0.1); // background at byte 64
+    expect(f[20]).toBeCloseTo(0.7); // peak at byte 80
   });
 
-  it('writes each species at byte 80 + 48 * index', () => {
+  it('writes each species at byte 96 + 48 * index', () => {
     const settings = addSpecies(
       { ...DEFAULT_SETTINGS, brightness: 2, species: [{ ...DEFAULT_SPECIES, deposit: 4 }] },
       0,
     );
     const { f, u } = pack(settings);
     expect(u[9]).toBe(2);
-    for (const base of [20, 32]) {
+    for (const base of [24, 36]) {
       expect(f[base]).toBeCloseTo((22.5 * Math.PI) / 180);
       expect(f[base + 1]).toBeCloseTo(Math.PI / 4);
       expect(f[base + 2]).toBe(9);
@@ -219,8 +220,8 @@ describe('packParams', () => {
       expect(f[base + 5]).toBe(0);
       expect(f[base + 6]).toBeCloseTo(0.5); // brightness / deposit
     }
-    expect(f[20 + 8]).toBeCloseTo(0xd0 / 255); // copper, at the species' byte 32
-    expect(f[32 + 8]).toBeCloseTo(0x82 / 255); // teal
+    expect(f[24 + 8]).toBeCloseTo(0xd0 / 255); // copper, at the species' byte 32
+    expect(f[36 + 8]).toBeCloseTo(0x82 / 255); // teal
   });
 
   it('writes walls and a species that avoids its own trail', () => {
@@ -232,7 +233,7 @@ describe('packParams', () => {
     });
     expect(u[10]).toBe(0);
     expect(f[11]).toBe(12.5);
-    expect([f[20 + 7], f[32 + 7]]).toEqual([1, -1]);
+    expect([f[24 + 7], f[36 + 7]]).toEqual([1, -1]);
   });
 
   it('crops the grid to cover a canvas of another shape', () => {
@@ -261,63 +262,44 @@ describe('canvasToGrid', () => {
   });
 });
 
-describe('food map', () => {
+describe('food brush', () => {
   const grid = { width: 40, height: 30 };
-  const count = (map: Uint8Array) => map.reduce((sum, value) => sum + (value ? 1 : 0), 0);
 
-  it('paints a disc and reports the block it touched', () => {
-    const map = createFoodMap(grid);
+  it('bounds a dab and a stroke', () => {
     const centre = { x: 20, y: 15 };
-    const block = paintStroke(map, grid, centre, centre, 3);
-    expect(block).toEqual({ x: 17, y: 12, width: 7, height: 7 });
-    expect(map[15 * grid.width + 20]).toBe(FOOD);
-    expect(map[12 * grid.width + 17]).toBe(0); // the block's corner is outside the disc
-    // Close to the disc's area, pi * 3 * 3 = 28.3 cells.
-    expect(count(map)).toBeGreaterThan(22);
-    expect(count(map)).toBeLessThan(34);
+    expect(strokeBounds(grid, centre, centre, 3)).toEqual({ x: 17, y: 12, width: 7, height: 7 });
+    expect(strokeBounds(grid, { x: 5.5, y: 10.5 }, { x: 30.5, y: 20.5 }, 1)).toEqual({
+      x: 4,
+      y: 9,
+      width: 28,
+      height: 13,
+    });
   });
 
-  it('paints the whole line between two points', () => {
-    const map = createFoodMap(grid);
-    paintStroke(map, grid, { x: 5.5, y: 10.5 }, { x: 30.5, y: 10.5 }, 1);
-    for (let x = 5; x <= 30; x++) {
-      expect(map[10 * grid.width + x]).toBe(FOOD);
-    }
-    expect(map[13 * grid.width + 18]).toBe(0);
-  });
-
-  it('erases only what the stroke covers', () => {
-    const map = createFoodMap(grid);
-    paintStroke(map, grid, { x: 10, y: 10 }, { x: 30, y: 10 }, 2);
-    const before = count(map);
-    paintStroke(map, grid, { x: 10, y: 10 }, { x: 10, y: 10 }, 3, true);
-    expect(map[10 * grid.width + 10]).toBe(0);
-    expect(map[10 * grid.width + 28]).toBe(FOOD);
-    expect(count(map)).toBeLessThan(before);
+  it('always covers the cell under the pointer', () => {
+    expect(strokeBounds(grid, { x: 7.2, y: 3.9 }, { x: 7.2, y: 3.9 }, 0)).toEqual({
+      x: 6,
+      y: 3,
+      width: 2,
+      height: 2,
+    });
   });
 
   it('clips at the edges and ignores strokes outside the grid', () => {
-    const map = createFoodMap(grid);
-    expect(paintStroke(map, grid, { x: 0, y: 0 }, { x: 0, y: 0 }, 2)).toEqual({
-      x: 0,
-      y: 0,
-      width: 3,
-      height: 3,
-    });
-    expect(map[0]).toBe(FOOD);
-    expect(paintStroke(map, grid, { x: -50, y: -50 }, { x: -40, y: -40 }, 2)).toBeNull();
-    expect(paintStroke(map, grid, { x: 100, y: 15 }, { x: 100, y: 15 }, 2)).toBeNull();
+    const corner = { x: 0, y: 0 };
+    expect(strokeBounds(grid, corner, corner, 2)).toEqual({ x: 0, y: 0, width: 3, height: 3 });
+    const far = { x: 39.5, y: 29.5 };
+    expect(strokeBounds(grid, far, far, 5)).toEqual({ x: 34, y: 24, width: 6, height: 6 });
+    expect(strokeBounds(grid, { x: -50, y: -50 }, { x: -40, y: -40 }, 2)).toBeNull();
+    expect(strokeBounds(grid, { x: 100, y: 15 }, { x: 100, y: 15 }, 2)).toBeNull();
   });
 
-  it('keeps sources in place when the grid changes size', () => {
-    const map = createFoodMap(grid);
-    paintStroke(map, grid, { x: 10, y: 15 }, { x: 10, y: 15 }, 2);
-    const doubled = { width: 80, height: 60 };
-    const resized = resizeFoodMap(map, grid, doubled);
-    expect(resized.length).toBe(80 * 60);
-    expect(resized[30 * doubled.width + 20]).toBe(FOOD);
-    expect(resized[30 * doubled.width + 60]).toBe(0);
-    expect(count(resized)).toBe(count(map) * 4);
+  it('packs the brush in the order of the WGSL struct', () => {
+    const data = new ArrayBuffer(BRUSH_SIZE);
+    packBrush(data, { x: 1, y: 2 }, { x: 3, y: 4 }, 6, false);
+    expect(Array.from(new Float32Array(data))).toEqual([1, 2, 3, 4, 6, 1]);
+    packBrush(data, { x: 1, y: 2 }, { x: 3, y: 4 }, 0, true);
+    expect(Array.from(new Float32Array(data))).toEqual([1, 2, 3, 4, 0.5, 0]);
   });
 });
 
@@ -333,6 +315,7 @@ describe('shared links', () => {
     stepsPerFrame: 7,
     brightness: 1.35,
     foodStrength: 12.5,
+    foodConsumption: 1.5,
     species: [
       {
         color: '#d697cf',
